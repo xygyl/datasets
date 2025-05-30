@@ -7,7 +7,8 @@ from openai import AzureOpenAI
 env_file = find_dotenv(".env")
 load_dotenv(env_file)
 
-# Initialize Azure OpenAI client\ nclient = AzureOpenAI(
+# Initialize Azure OpenAI client
+client = AzureOpenAI(
     api_key=os.getenv("API_KEY"),
     api_version=os.getenv("API_VERSION"),
     azure_endpoint=os.getenv("AZURE_ENDPOINT")
