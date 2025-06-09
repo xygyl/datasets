@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import argparse
 import os
 import random
@@ -67,4 +65,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
