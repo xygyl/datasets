@@ -1,0 +1,29 @@
+-----
+Filename: /home/xuanfeng/UB-bug-research/datasets/Juliet-C-C-1.3/testcases/linux/dirs/dir_1/extr_amdgpu_vcn.c_amdgpu_vcn_dec_get_create_msg.c
+
+UB Detected: Yes  
+UB Reason: The function performs a loop (lines `for (i = 14; i < 1024; ++i)`), potentially writing to `msg[i]`. The `msg` pointer is obtained from `amdgpu_bo_create_reserved()` via reassignment `(void **)&msg`. However, the function does not verify the size or bounds of `msg`. If the `msg` buffer size (allocated from `amdgpu_bo_create_reserved()`) is smaller than 1024, this operation will potentially cause out-of-bounds memory writes, invoking undefined behavior by violating array bounds.  
+
+Bug Detected: Yes  
+Bug Type: Buffer Overflow  
+Bug Reason: As described above, the loop writes to indices of `msg` from 14 to 1023 without verifying the allocated size of the `msg` buffer. A smaller allocation will cause a buffer overflow, leading to memory corruption.  
+Bug Caused by UB: Yes  
+Confidence: High  
+Fix Suggestion: Validate the size of the allocated buffer returned by `amdgpu_bo_create_reserved()` before performing the loop. Ensure that the `msg` pointer can safely accommodate 1024 elements. If not, either allocate the correct size or adjust the loop bounds accordingly.  
+
+Example Fix:
+```c
+size_t buffer_size = 1024; // Desired size
+r = amdgpu_bo_create_reserved(adev, buffer_size * sizeof(uint32_t), PAGE_SIZE,
+                              AMDGPU_GEM_DOMAIN_VRAM,
+                              &bo, NULL, (void **)&msg);
+if (r)
+    return r;
+
+// Validate buffer size before writing
+if (r == 0 && msg != NULL) {
+    for (i = 14; i < buffer_size; ++i)
+        msg[i] = cpu_to_le32(0x0);
+}
+```
+This ensures the buffer has the required size to prevent overflow.

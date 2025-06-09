@@ -1,0 +1,71 @@
+-----
+Filename: /home/xuanfeng/UB-bug-research/datasets/Juliet-C-C-1.3/testcases/linux/dirs/dir_4/extr_hva-debugfs.c_hva_dbg_perf_compute.c
+
+### UB Analysis
+
+UB Detected: Yes  
+UB Reason: Potential undefined behavior exists in some operations due to lack of checks for division by zero. Specifically:
+- `do_div()` is called with `dbg->cnt_duration`, `dbg->total_duration`, `dbg->cnt_period`, and `dbg->total_period` without checking whether these values are zero before dividing. Division by zero produces undefined behavior in C.
+
+### Bug Analysis
+
+Bug Detected: Yes  
+Bug Type: Division by zero, Logic flaw  
+Bug Reason: If `dbg->cnt_duration`, `dbg->total_duration`, `dbg->cnt_period`, or `dbg->total_period` are zero, the use of `do_div()` will result in division by zero, potentially causing undefined behavior or runtime crashes. Additionally, the logic does not explicitly check for these zero values before performing computation, which results in unsafe operations.  
+Bug Caused by UB: Yes  
+
+### Confidence
+
+Confidence: High  
+The logic clearly does not safeguard against division by zero, and these operations depend on runtime values which could easily be zero in certain scenarios.
+
+### Fix Suggestion
+
+To resolve the bug and avoid undefined behavior, explicitly check for zero values before performing division involving `do_div()`:
+
+```c
+u64 div;
+struct hva_ctx_dbg *dbg = &ctx->dbg;
+
+if (dbg->cnt_duration > 0) {
+    div = (u64)dbg->total_duration;
+    do_div(div, dbg->cnt_duration);
+    dbg->avg_duration = (u32)div;
+} else {
+    dbg->avg_duration = 0;
+}
+
+if (dbg->cnt_duration > 0 && dbg->total_duration > 0) {
+    div = (u64)dbg->cnt_duration * 100000;
+    do_div(div, dbg->total_duration);
+    dbg->max_fps = (u32)div;
+} else {
+    dbg->max_fps = 0;
+}
+
+if (dbg->cnt_period > 0) {
+    div = (u64)dbg->total_period;
+    do_div(div, dbg->cnt_period);
+    dbg->avg_period = (u32)div;
+} else {
+    dbg->avg_period = 0;
+}
+
+if (dbg->cnt_period > 0 && dbg->total_period > 0) {
+    div = (u64)dbg->cnt_period * 100000;
+    do_div(div, dbg->total_period);
+    dbg->avg_fps = (u32)div;
+} else {
+    dbg->avg_fps = 0;
+}
+
+if (dbg->total_stream_size > 0 && dbg->total_period > 0) {
+    div = (u64)dbg->total_stream_size * 80;
+    do_div(div, dbg->total_period);
+    dbg->avg_bitrate = (u32)div;
+} else {
+    dbg->avg_bitrate = 0;
+}
+```
+
+This ensures division is only performed when the divisor is non-zero, preventing undefined behavior and runtime crashes.

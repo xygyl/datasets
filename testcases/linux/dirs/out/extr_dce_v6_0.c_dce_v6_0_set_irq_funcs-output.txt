@@ -1,0 +1,37 @@
+-----
+Filename: /home/xuanfeng/UB-bug-research/datasets/Juliet-C-C-1.3/testcases/linux/dirs/dir_2/extr_dce_v6_0.c_dce_v6_0_set_irq_funcs.c
+
+UB Detected: Yes
+UB Reason: The code does not confirm whether `adev->mode_info.num_crtc` is non-negative before using it in calculations. Specifically, assigning `adev->crtc_irq.num_types = AMDGPU_CRTC_IRQ_VLINE1 + adev->mode_info.num_crtc` assumes `num_crtc` is non-negative. If `num_crtc` is negative, this will cause undefined behavior due to signed integer overflow or invalid logic.
+
+Bug Detected: Yes
+Bug Type: Logic Flaw
+Bug Reason: There is a missing validation check for the `adev->mode_info.num_crtc` value. If `num_crtc` is negative, setting `adev->pageflip_irq.num_types = adev->mode_info.num_crtc` would lead to incorrect behavior or potential issues elsewhere in the program when this parameter is used.
+Bug Caused by UB: Yes
+
+Confidence: High
+Fix Suggestion: Add validation checks to ensure that `adev->mode_info.num_crtc` and `adev->mode_info.num_hpd` are non-negative before using them. For instance:
+
+```c
+if (adev->mode_info.num_crtc > 0) {
+    adev->crtc_irq.num_types = AMDGPU_CRTC_IRQ_VLINE1 + adev->mode_info.num_crtc;
+} else {
+    adev->crtc_irq.num_types = 0;
+}
+
+if (adev->mode_info.num_crtc >= 0) {
+    adev->pageflip_irq.num_types = adev->mode_info.num_crtc;
+} else {
+    adev->pageflip_irq.num_types = 0; // Or handle the error appropriately.
+}
+
+if (adev->mode_info.num_hpd >= 0) {
+    adev->hpd_irq.num_types = adev->mode_info.num_hpd;
+    adev->hpd_irq.funcs = &dce_v6_0_hpd_irq_funcs;
+} else {
+    // Handle the error case, e.g., set it to 0 or log that the value is invalid.
+    adev->hpd_irq.num_types = 0;
+    adev->hpd_irq.funcs = NULL;
+}
+```
+-----

@@ -1,0 +1,29 @@
+-----
+Filename: /home/xuanfeng/UB-bug-research/datasets/Juliet-C-C-1.3/testcases/linux/dirs/dir_6/extr_pluto2.c_pluto_stop_feed.c
+
+### UB Analysis
+UB Detected: Yes  
+UB Reason: The decrement operation on `pluto->users` and `pluto->full_ts_users` is performed without validating whether the current value is greater than zero. This can lead to signed integer underflow in `pluto->users` and `pluto->full_ts_users`, which is undefined behavior according to the C standard.  
+
+### Bug Analysis
+Bug Detected: Yes  
+Bug Type: Signed Integer Underflow  
+Bug Reason: If `pluto->users` or `pluto->full_ts_users` is zero when the decrement operation is performed, the result will wrap around and become a very large value (on systems where `scalar_t__` is signed), possibly triggering unintended behaviors in subsequent logic or interactions with hardware via `pluto_rw()` calls.  
+
+Bug Caused by UB: Yes  
+Confidence: High  
+
+### Fix Suggestion:
+- Validate the decrements by ensuring that `pluto->users` and `pluto->full_ts_users` are greater than zero before performing the decrement operations. For example:
+```c
+if (pluto->users > 0 && --pluto->users == 0)
+    pluto_rw(pluto, REG_PIDn(0), PID0_AFIL, PID0_AFIL);
+
+if ((f->pid < 0x2000) && (f->index < NHWFILTERS))
+    pluto_rw(pluto, REG_PIDn(f->index), PIDn_ENP | PIDn_PID, 0x1fff);
+else if (pluto->full_ts_users > 0 && --pluto->full_ts_users == 0)
+    pluto_rw(pluto, REG_PIDn(0), PID0_NOFIL, 0);
+```
+
+This avoids undefined behavior and the potential for signed integer underflow by ensuring safe manipulation of the values.  
+-----

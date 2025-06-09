@@ -1,0 +1,29 @@
+-----
+Filename: /home/xuanfeng/UB-bug-research/datasets/Juliet-C-C-1.3/testcases/linux/dirs/dir_4/extr_irq.c_acpi_unregister_gsi.c  
+UB Detected: Yes  
+UB Reason: The function `irq_find_mapping()` may return `-1` if the mapping is not found, but this value is passed directly to `irq_dispose_mapping()`. If `irq_dispose_mapping()` doesn't handle `-1` properly, this could result in undefined behavior. Additionally, the possible scenario in which `irq_find_matching_fwnode()` returns a `NULL` pointer and `d` is used in `irq_find_mapping(d, gsi)` would result in undefined behavior due to dereferencing `NULL`.  
+Bug Detected: Yes  
+Bug Type: Logic Flaw  
+Bug Reason: The function does not check the return value of `irq_find_mapping()` or `irq_find_matching_fwnode()` for error conditions (`-1` and `NULL` respectively), which can lead to runtime issues, such as improper disposal of `irq` or dereferencing a null pointer.  
+Bug Caused by UB: Yes  
+Confidence: High  
+Fix Suggestion: Add checks to ensure `irq_find_matching_fwnode()` does not return `NULL` and that `irq_find_mapping()` does not return `-1`. Example:  
+```c
+void acpi_unregister_gsi(u32 gsi)
+{
+    struct irq_domain *d = irq_find_matching_fwnode(acpi_gsi_domain_id, DOMAIN_BUS_ANY);
+    if (!d) {
+        // Handle error: irq domain not found
+        return;
+    }
+
+    int irq = irq_find_mapping(d, gsi);
+    if (irq < 0) {
+        // Handle error: irq mapping not found
+        return;
+    }
+
+    irq_dispose_mapping(irq);
+}
+```  
+-----

@@ -1,0 +1,37 @@
+-----
+Filename: /home/xuanfeng/UB-bug-research/datasets/Juliet-C-C-1.3/testcases/linux/dirs/dir_8/extr_util.c_tomoyo_const_part_length.c  
+UB Detected: Yes  
+UB Reason: The function may dereference past the end of the `filename` string during octal escape sequence parsing (e.g., `"\ooo"`). Specifically, in cases where `filename` does not contain enough characters for a valid three-digit octal escape sequence, the `c = *filename++;` operations may read beyond the null terminator. This constitutes undefined behavior because dereferencing memory beyond the bounds of the string results in an invalid access.  
+
+Bug Detected: Yes  
+Bug Type: Out-of-bounds memory access  
+Bug Reason: The loop assumes that there are always at least three valid characters following a `\` when parsing an octal escape sequence, but this assumption is invalid if the input string is shorter than needed for processing a full escape sequence. This can lead to reading invalid memory outside the bounds of `filename`.  
+
+Bug Caused by UB: Yes  
+Confidence: High  
+Fix Suggestion: Validate that there are enough characters left in the `filename` string before attempting to parse an octal escape sequence. For example:
+
+```c
+	switch (c) {
+	case '\\':  /* "\\" */
+		len += 2;
+		continue;
+	case '0':   /* "\ooo" */
+	case '1':
+	case '2':
+	case '3':
+		if (!filename[0] || !filename[1])  // Ensure two characters follow '\0'
+			break;
+		c = *filename++;
+		if (c < '0' || c > '7')
+			break;
+		c = *filename++;
+		if (c < '0' || c > '7')
+			break;
+		len += 4;
+		continue;
+	}
+```
+
+This ensures that `filename` is not dereferenced beyond its valid range during parsing.
+-----

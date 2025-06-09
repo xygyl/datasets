@@ -1,0 +1,38 @@
+-----
+Filename: /home/xuanfeng/UB-bug-research/datasets/Juliet-C-C-1.3/testcases/linux/dirs/dir_1/extr_amdgpu_gem.c_amdgpu_gem_timeout.c  
+UB Detected: Yes  
+UB Reason: Overflow in cast of `timeout_ns` to `(int64_t)` can lead to undefined behavior if `timeout_ns` exceeds the range of signed 64-bit integers (positive values exceeding `INT64_MAX`). The C standard does not define the behavior of signed integer overflows, which may lead to inconsistent program execution.  
+Bug Detected: Yes  
+Bug Type: Logic Flaw  
+Bug Reason: Casting `timeout_ns` to `(int64_t)` without proper checks can result in unexpected negative value comparisons. This logic flaw affects the condition `((int64_t)timeout_ns) < 0` and misinterprets values outside the range of `(int64_t)`. Additionally, the assertion `timeout_jiffies > MAX_SCHEDULE_TIMEOUT` may result in incorrect computation due to a signed-to-unsigned overflow issue while calculating and using `timeout_jiffies`.  
+Bug Caused by UB: Yes  
+Confidence: High  
+Fix Suggestion:  
+- Before casting `uint64_t timeout_ns` to `(int64_t)`, validate that `timeout_ns` is within the range of signed 64-bit integers (e.g., `if (timeout_ns > INT64_MAX, return MAX_SCHEDULE_TIMEOUT;`).  
+- Correct the logic for clamped `timeout_jiffies` overflow handling by ensuring unsigned-to-signed conversions are explicitly controlled when compared to `MAX_SCHEDULE_TIMEOUT`.  
+Example Fix:  
+```c
+unsigned long amdgpu_gem_timeout(uint64_t timeout_ns) {
+    unsigned long timeout_jiffies;
+    ktime_t timeout;
+
+    /* clamp timeout strictly to prevent UB */
+    if (timeout_ns > INT64_MAX)
+        return MAX_SCHEDULE_TIMEOUT;
+
+    if (((int64_t)timeout_ns) < 0)
+        return MAX_SCHEDULE_TIMEOUT;
+
+    timeout = ktime_sub(ns_to_ktime(timeout_ns), ktime_get());
+    if (ktime_to_ns(timeout) < 0)
+        return 0;
+
+    timeout_jiffies = nsecs_to_jiffies(ktime_to_ns(timeout));
+    /* clamp timeout - unsigned comparison */
+    if (timeout_jiffies > MAX_SCHEDULE_TIMEOUT)
+        return MAX_SCHEDULE_TIMEOUT - 1;
+
+    return timeout_jiffies;
+}
+```  
+-----

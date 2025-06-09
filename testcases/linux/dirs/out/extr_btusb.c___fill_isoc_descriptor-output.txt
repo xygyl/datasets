@@ -1,0 +1,34 @@
+-----
+Filename: /home/xuanfeng/UB-bug-research/datasets/Juliet-C-C-1.3/testcases/linux/dirs/dir_1/extr_btusb.c___fill_isoc_descriptor.c  
+UB Detected: Yes  
+UB Reason: Possible out-of-bounds access to the `iso_frame_desc` array if `BTUSB_MAX_ISOC_FRAMES > urb->number_of_packets`. This could occur because there is no explicit check ensuring `i` remains within the bounds of `urb->iso_frame_desc`.  
+Bug Detected: Yes  
+Bug Type: Buffer Overflow  
+Bug Reason: The loop iterates up to `BTUSB_MAX_ISOC_FRAMES`, potentially allowing `i` to access elements beyond the allocated size for `iso_frame_desc`. This could overwrite unintended memory and result in undefined behavior.  
+Bug Caused by UB: Yes  
+Confidence: High  
+Fix Suggestion: Add a boundary check in the loop to ensure `iso_frame_desc` is not accessed beyond its allocated size. For example:
+
+```c
+static inline void __fill_isoc_descriptor(struct urb *urb, int len, int mtu) {
+    int i, offset = 0;
+
+    BT_DBG("len %d mtu %d", len, mtu);
+
+    for (i = 0; i < BTUSB_MAX_ISOC_FRAMES && i < urb->number_of_packets && len >= mtu;
+         i++, offset += mtu, len -= mtu) {
+        urb->iso_frame_desc[i].offset = offset;
+        urb->iso_frame_desc[i].length = mtu;
+    }
+
+    if (len && i < BTUSB_MAX_ISOC_FRAMES && i < urb->number_of_packets) {
+        urb->iso_frame_desc[i].offset = offset;
+        urb->iso_frame_desc[i].length = len;
+        i++;
+    }
+
+    urb->number_of_packets = i;
+}
+```
+This ensures `iso_frame_desc` does not exceed allocated bounds.
+-----

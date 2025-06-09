@@ -1,0 +1,41 @@
+-----
+Filename: /home/xuanfeng/UB-bug-research/datasets/Juliet-C-C-1.3/testcases/linux/dirs/dir_4/extr_hugetlb.c_alloc_surplus_huge_page.c  
+UB Detected: No  
+UB Reason: The function does not use constructs leading to behavior that is explicitly labeled as "undefined" by the C standard. There is no signed integer overflow, null pointer dereference, strict aliasing violation, or other well-known UB cases present in this snippet. Necessary locks (e.g., `hugetlb_lock`) are acquired before accessing shared data, and null checks are performed adequately on allocated pages.  
+
+Bug Detected: Yes  
+Bug Type: **Concurrent Race Condition**  
+Bug Reason: The function performs a check on the condition `h->surplus_huge_pages >= h->nr_overcommit_huge_pages` after acquiring a spin lock to protect the `surplus_huge_pages` field. However, immediately after releasing the lock, the function makes another allocation attempt (via `alloc_fresh_huge_page`) and re-evaluates the same condition in the second `spin_lock` block. This introduces a *race condition*: a concurrent thread might modify `h->surplus_huge_pages` between the lock-release in the first block and the lock-reacquisition in the second block. As a result, we might overcommit surplus huge pages.
+
+Bug Caused by UB: No  
+Confidence: High  
+
+Fix Suggestion:  
+To eliminate the race condition, the range of conditions dependent on `h->surplus_huge_pages` should be evaluated under the same spin-lock instance. Specifically, the allocation attempt (`alloc_fresh_huge_page`) should occur after confirming there is room to increment `h->surplus_huge_pages` and without releasing the lock until after the entire check-update sequence is complete.  
+
+Revised pseudocode example to fix:  
+```c
+spin_lock(&hugetlb_lock);
+if (h->surplus_huge_pages < h->nr_overcommit_huge_pages) {
+    spin_unlock(&hugetlb_lock);
+    page = alloc_fresh_huge_page(h, gfp_mask, nid, nmask, NULL);
+    if (!page)
+        return NULL;
+
+    spin_lock(&hugetlb_lock);
+    if (h->surplus_huge_pages < h->nr_overcommit_huge_pages) {
+        // Update shared state safely
+        h->surplus_huge_pages++;
+        h->surplus_huge_pages_node[page_to_nid(page)]++;
+        spin_unlock(&hugetlb_lock);
+        return page;
+    }
+    // Handle race condition cleanup
+    spin_unlock(&hugetlb_lock);
+    put_page(page);
+    return NULL;
+}
+spin_unlock(&hugetlb_lock);
+return NULL;
+```
+This approach ensures no concurrent modification to `h->surplus_huge_pages` occurs between checks.

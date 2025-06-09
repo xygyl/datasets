@@ -1,0 +1,35 @@
+-----
+Filename: /home/xuanfeng/UB-bug-research/datasets/Juliet-C-C-1.3/testcases/linux/dirs/dir_7/extr_sort.c__hist_entry__sym_size_snprintf.c
+
+UB Detected: Yes  
+UB Reason: The UB arises from the potential invocation of `symbol__size(sym)` and casting its result to an integer (`%*d`) without validating that the `struct symbol` passed to `symbol__size` produces a valid value convertible to an integer. If `symbol__size(sym)` returns a pointer instead of an integral value, or an invalid pointer, dereferencing or type-casting its return could produce undefined behavior.  
+
+Bug Detected: Yes  
+Bug Type: Logic Flaw  
+Bug Reason: The code assumes `symbol__size(sym)` produces data compatible with the specifier `%*d`. If it returns a non-integer or pointer, the behavior is undefined and the formatting output will be logically incorrect. Additionally, when calling with `sym == NULL`, there is no validation to prevent passing `"unknown"` in an incompatible way.  
+
+Bug Caused by UB: Yes  
+Confidence: High  
+
+Fix Suggestion:  
+1. Explicitly check the type of the `symbol__size(sym)` return value to ensure it matches expectations (integer or compatible types).  
+2. Ensure proper type compatibility by defining `symbol__size` to always return a specific type.  
+3. Replace `%*d` with a format string compatible with the actual type returned by `symbol__size` (e.g., `%s` for string values).  
+4. Add defensive programming statements to validate all inputs passed to `repsep_snprintf`.
+
+Example:
+```c
+static int _hist_entry__sym_size_snprintf(struct symbol *sym, char *bf,
+					  size_t bf_size, unsigned int width)
+{
+	if (sym) {
+        char *sym_size = symbol__size(sym);
+        if (sym_size != NULL) {
+            return repsep_snprintf(bf, bf_size, "%*s", width, sym_size);
+        }
+	}
+
+	return repsep_snprintf(bf, bf_size, "%*s", width, "unknown");
+}
+```  
+-----

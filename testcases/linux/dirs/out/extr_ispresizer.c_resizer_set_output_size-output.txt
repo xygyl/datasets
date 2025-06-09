@@ -1,0 +1,27 @@
+-----
+Filename: /home/xuanfeng/UB-bug-research/datasets/Juliet-C-C-1.3/testcases/linux/dirs/dir_4/extr_ispresizer.c_resizer_set_output_size.c
+
+UB Detected: Yes
+UB Reason: The left shift operations (`width << ISPRSZ_OUT_SIZE_HORZ_SHIFT` and `height << ISPRSZ_OUT_SIZE_VERT_SHIFT`) can cause undefined behavior if the bit shifts exceed the width of the `u32` type. The C standard specifies that shifting by a value greater than or equal to the width of the type is undefined. Additionally, if `width` or `height` are unvalidated inputs or extremely large, there is a risk of exceeding the type boundary during shifts.
+Bug Detected: Yes
+Bug Type: Logic/Misleading Code
+Bug Reason: The masking operations (`& ISPRSZ_OUT_SIZE_HORZ_MASK` and `& ISPRSZ_OUT_SIZE_VERT_MASK`) seem intended to ensure the values fit within the specified constraints. However, this does not prevent undefined behavior caused by out-of-range shifts before masking. This logic flaw could lead to unintended values being written.
+Bug Caused by UB: Yes
+Confidence: High
+Fix Suggestion: Ensure `width` and `height` are validated to be within the expected range (less than `(1 << ISPRSZ_OUT_SIZE_HORZ_SHIFT)` and `(1 << ISPRSZ_OUT_SIZE_VERT_SHIFT)` respectively) prior to performing the shift operations. Further, add safety checks on the shift values used to ensure they are within the range `[0, sizeof(u32) * CHAR_BIT - 1]`.
+
+Example adjustment:
+```c
+#define MAX_WIDTH ((1 << ISPRSZ_OUT_SIZE_HORZ_SHIFT) - 1)
+#define MAX_HEIGHT ((1 << ISPRSZ_OUT_SIZE_VERT_SHIFT) - 1)
+
+width = (width > MAX_WIDTH) ? MAX_WIDTH : width;
+height = (height > MAX_HEIGHT) ? MAX_HEIGHT : height;
+
+rgval  = (width << ISPRSZ_OUT_SIZE_HORZ_SHIFT)
+         & ISPRSZ_OUT_SIZE_HORZ_MASK;
+rgval |= (height << ISPRSZ_OUT_SIZE_VERT_SHIFT)
+         & ISPRSZ_OUT_SIZE_VERT_MASK;
+isp_reg_writel(isp, rgval, OMAP3_ISP_IOMEM_RESZ, ISPRSZ_OUT_SIZE);
+```
+-----

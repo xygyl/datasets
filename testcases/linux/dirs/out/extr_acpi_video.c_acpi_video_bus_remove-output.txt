@@ -1,0 +1,42 @@
+-----
+Filename: /home/xuanfeng/UB-bug-research/datasets/Juliet-C-C-1.3/testcases/linux/dirs/dir_1/extr_acpi_video.c_acpi_video_bus_remove.c  
+UB Detected: Yes  
+UB Reason: If `acpi_driver_data(device)` returns `NULL`, the expression `video = acpi_driver_data(device)` after the `if (!device ...)` conditional check may result in dereferencing `NULL` when `video->attached_array` or `video->entry` is accessed. This constitutes undefined behavior due to null pointer dereference.  
+
+Bug Detected: Yes  
+Bug Type: Null Pointer Dereference  
+Bug Reason: The code assumes `acpi_driver_data(device)` always returns valid data after passing the `if (!device || !acpi_driver_data(device))` check. However, if the function `acpi_driver_data(device)` exhibits side effects or races and later returns `NULL` again, `video->attached_array` or `video->entry` dereferences a null pointer, potentially leading to a crash. Furthermore, there is no defined behavior guaranteeing the safety of using `acpi_driver_data()` again after the earlier conditional check.  
+
+Bug Caused by UB: Yes  
+Confidence: High  
+
+Fix Suggestion:  
+Modify the code to ensure that `acpi_driver_data(device)` is only called once and securely validated, storing its result and reusing the validated pointer. Example:
+
+```c
+static int acpi_video_bus_remove(struct acpi_device *device)
+{
+	struct acpi_video_bus *video = NULL;
+
+	if (!device)
+		return -EINVAL;
+
+	video = acpi_driver_data(device);
+	if (!video)
+		return -EINVAL;
+
+	acpi_video_bus_remove_notify_handler(video);
+	acpi_video_bus_unregister_backlight(video);
+	acpi_video_bus_put_devices(video);
+
+	mutex_lock(&video_list_lock);
+	list_del(&video->entry);
+	mutex_unlock(&video_list_lock);
+
+	kfree(video->attached_array);
+	kfree(video);
+
+	return 0;
+}
+```
+This ensures the conditional logic is consistent and avoids potential null pointer dereference.

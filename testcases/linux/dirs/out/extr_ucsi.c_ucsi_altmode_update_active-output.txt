@@ -1,0 +1,23 @@
+-----
+Filename: /home/xuanfeng/UB-bug-research/datasets/Juliet-C-C-1.3/testcases/linux/dirs/dir_8/extr_ucsi.c_ucsi_altmode_update_active.c
+
+UB Detected: Yes  
+UB Reason: If `cur` is an invalid value (0xff or greater than `UCSI_MAX_ALTMODES`) when `typec_altmode_get_partner` is invoked, it results in an out-of-bounds array access on `con->port_altmode[cur]` if `cur` is used as an index without proper bounds checking. This causes undefined behavior. Additionally, if `con->partner_altmode[i]` does not terminate properly (e.g., missing a terminating null pointer), the subsequent loop may result in a read of garbage values or out-of-bounds memory.  
+
+Bug Detected: Yes  
+Bug Type: Out-of-bounds access  
+Bug Reason: The loop iterating over `con->partner_altmode` relies on it being a null-terminated array, assuming `con->partner_altmode[i]` will eventually reach null. This assumption could fail if the array isn't properly null-terminated, leading to out-of-bounds memory reads. Additionally, the access to `con->port_altmode[cur]` is unsafe because the value of `cur` has not been validated against its range.  
+Bug Caused by UB: Yes  
+Confidence: High  
+Fix Suggestion: Introduce bounds checking to validate `cur` against both `0` and `UCSI_MAX_ALTMODES` before accessing `con->port_altmode[cur]`. Similarly, ensure that `con->partner_altmode` is properly null-terminated, or add explicit bounds-checking in the loop to prevent out-of-bounds access. For example:
+
+```c
+if (cur < UCSI_MAX_ALTMODES && cur >= 0) {
+    altmode = typec_altmode_get_partner(con->port_altmode[cur]);
+}
+
+for (i = 0; i < MAX_ALTMODES && con->partner_altmode[i]; i++) {
+    typec_altmode_update_active(con->partner_altmode[i], con->partner_altmode[i] == altmode);
+}
+```
+Additionally, ensure that `MAX_ALTMODES` is sufficiently defined in coordination with actual array sizes.

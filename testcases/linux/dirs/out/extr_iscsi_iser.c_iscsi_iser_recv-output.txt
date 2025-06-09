@@ -1,0 +1,22 @@
+-----
+Filename: /home/xuanfeng/UB-bug-research/datasets/Juliet-C-C-1.3/testcases/linux/dirs/dir_4/extr_iscsi_iser.c_iscsi_iser_recv.c  
+UB Detected: Yes  
+UB Reason: Potentially accessing out-of-bound elements in `rx_data` array if `ntoh24(hdr->dlength)` produces inconsistent or malicious values, causing `iscsi_complete_pdu` to operate incorrectly. Additionally, the check `if (datalen > rx_data_len || (datalen + 4) < rx_data_len)` allows the function to continue with potentially invalid values. Arithmetic overflow on `datalen + 4` is also possible if `datalen` is extremely large.  
+
+Bug Detected: Yes  
+Bug Type: Logic Flaw  
+Bug Reason: The condition `if (datalen > rx_data_len || (datalen + 4) < rx_data_len)` may fail to correctly verify data consistency. Specifically, `(datalen + 4) < rx_data_len` implies that an overflow in `datalen + 4` could erroneously result in legitimate `rx_data_len` values appearing invalid. Additionally, if `rx_data_len` exceeds the allocated buffer size of `rx_data`, the function does not verify this, leading to potential memory corruption.  
+
+Bug Caused by UB: Yes  
+Confidence: High  
+Fix Suggestion:  
+1. Add explicit checks to prevent an integer overflow in `datalen + 4`. For example:  
+   ```c
+   if (datalen > rx_data_len || (datalen > INT_MAX - 4) || (datalen + 4) < rx_data_len) {
+       iser_err("wrong datalen %d (hdr), %d (IB)\n", datalen, rx_data_len);
+       rc = ISCSI_ERR_DATALEN;
+       goto error;
+   }
+   ```  
+2. Ensure that the `rx_data_len` parameter does not exceed the allocated memory size of the `rx_data` buffer before calling `iscsi_iser_recv`. This can be checked by verifying `rx_data` is valid and that `rx_data_len` fits within its bounds.  
+-----

@@ -1,0 +1,28 @@
+-----
+Filename: /home/xuanfeng/UB-bug-research/datasets/Juliet-C-C-1.3/testcases/linux/dirs/dir_1/extr_bh1750.c_bh1750_show_int_time_available.c
+
+UB Detected: Yes
+UB Reason: Potential buffer overflow due to writing beyond the `PAGE_SIZE` limit in the `buf` array. The `scnprintf` function continues to write until `PAGE_SIZE - len` is exhausted, but the subsequent operation `buf[len - 1] = '\n'` can potentially access out-of-bounds memory if `len` reaches or exceeds `PAGE_SIZE`.
+
+Bug Detected: Yes
+Bug Type: Buffer overflow
+Bug Reason: The code assumes `len` will never exceed `PAGE_SIZE`, but there's no explicit check to ensure this. If `len >= PAGE_SIZE`, the operation `buf[len - 1]` will cause an out-of-bounds memory write.
+Bug Caused by UB: Yes
+Confidence: High
+Fix Suggestion: Before performing `buf[len - 1] = '\n';`, validate that `len` is less than `PAGE_SIZE` to prevent out-of-bounds memory access. Also, modify the loop condition to ensure writing remains within `PAGE_SIZE`. Example:
+```c
+if (len < PAGE_SIZE)
+    buf[len - 1] = '\n';
+```
+Additionally, the loop logic for `scnprintf` should ensure `PAGE_SIZE - len` will not become negative, ensuring safe memory writes:
+```c
+for (i = chip_info->mtreg_min; i <= chip_info->mtreg_max; i += chip_info->inc) {
+    if (len < PAGE_SIZE) {
+        ssize_t written = scnprintf(buf + len, PAGE_SIZE - len, "0.%06d ", chip_info->mtreg_to_usec * i);
+        if (written < 0 || written >= PAGE_SIZE - len)
+            break;  // Prevent overflow
+        len += written;
+    }
+}
+```
+-----

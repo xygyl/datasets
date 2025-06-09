@@ -1,0 +1,34 @@
+-----
+Filename: /home/xuanfeng/UB-bug-research/datasets/Juliet-C-C-1.3/testcases/linux/dirs/dir_8/extr_time-utils.c_parse_percent.c  
+UB Detected: Yes  
+UB Reason: Accessing memory beyond the bounds of the provided `str` input could result in undefined behavior. Specifically, `str + strlen(str)` assumes that the address `str + strlen(str)` is valid, but `strtod` does not guarantee that it will stop processing only at `str + strlen(str)`. Thus, if `strtod` sets `endptr` to point outside the valid memory region due to invalid input, comparing `endptr` with `str + strlen(str)` would trigger undefined behavior.  
+Bug Detected: Yes  
+Bug Type: Logic flaw  
+Bug Reason: The condition `if (endptr != str + strlen(str))` does not appropriately handle cases where `strtod` stops processing the string prematurely due to parse errors or invalid input. Thus, the function may incorrectly conclude that the input is valid even when `strtod` fails to parse the number properly, or incorrectly report errors for valid inputs. Additionally, the pointer modification (`*c = '\0`) introduces a potential bug if `str` is part of read-only memory or statically allocated immutable strings.  
+Bug Caused by UB: Yes  
+Confidence: High  
+Fix Suggestion:  
+1. Validate that `strtod` successfully parsed a number and `endptr` points to a valid location within `str`. Replace `if (endptr != str + strlen(str))` with a more robust check ensuring `endptr` points where expected or at worst, falls within valid boundaries of the `str` buffer.  
+2. Avoid modifying the input string directly (`*c = '\0`) when splitting at `%`. Use a temporary buffer or pointer manipulation instead, especially if `str` can be part of read-only memory.  
+
+Example fix:  
+```c
+static int parse_percent(double *pcnt, char *str)
+{
+    char *c, *endptr;
+    double d;
+
+    c = strchr(str, '%');
+    if (!c)
+        return -1;
+
+    *c = '\0';  // Ensure `str` is not read-only memory before modification
+    d = strtod(str, &endptr);
+    if (endptr == str || *endptr != '\0')  // Check `endptr` is valid and points to '\0'
+        return -1;
+
+    *pcnt = d / 100.0;
+    return 0;
+}
+```
+-----

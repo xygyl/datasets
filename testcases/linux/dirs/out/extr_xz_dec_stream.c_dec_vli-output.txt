@@ -1,0 +1,24 @@
+-----
+Filename: /home/xuanfeng/UB-bug-research/datasets/Juliet-C-C-1.3/testcases/linux/dirs/dir_8/extr_xz_dec_stream.c_dec_vli.c  
+UB Detected: Yes  
+UB Reason: The function has a potential signed integer overflow issue in the `s->vli |= (vli_type)(byte & 0x7F) << s->pos;` line. The left shift operation may lead to undefined behavior if `s->pos` exceeds the number of bits in `vli_type`. This is especially concerning since `VLI_BYTES_MAX` may set `s->pos` close to the width of the variable type, making this operation unsafe. Signed integer overflow results in undefined behavior by the C standard.  
+
+Bug Detected: Yes  
+Bug Type: Logic Flaw  
+Bug Reason: The function does not adequately check whether the left shift operation `<< s->pos` will lead to overflow of `vli_type`. This can result in incorrect values being assigned, causing logical errors in the interpretation of the VLI (Variable Length Integer) value. Further, the lack of bounds checking makes the function vulnerable to undefined behavior, which could propagate downstream as a bug.  
+
+Bug Caused by UB: Yes  
+
+Confidence: High  
+
+Fix Suggestion:  
+1. Add bounds checking before performing the left shift operation to ensure that `s->pos + 7` does not exceed the number of bits in `vli_type`.
+2. Verify that `vli_type` is always large enough to safely store the computed VLI within the limits specified by `VLI_BYTES_MAX`. If necessary, declare `vli_type` to be explicitly large enough (e.g., use `uint64_t` if VLI_BYTES_MAX is too large for regular integer types).  
+
+Example fix:
+```c
+if (s->pos >= sizeof(vli_type) * 8 - 7) {
+    return XZ_DATA_ERROR; // Safeguard against overflow
+}
+s->vli |= (vli_type)(byte & 0x7F) << s->pos;
+```
