@@ -14,7 +14,7 @@ client = AzureOpenAI(
     azure_endpoint=os.getenv("AZURE_ENDPOINT")
 )
 
-def get_bot_response(messages, model="gpt-4o", temperature=0):
+def get_bot_response(messages, model="gpt-o3", temperature=0):
     """Get a response from the chatbot."""
     try:
         response = client.chat.completions.create(
