@@ -180,11 +180,11 @@ def parse_llm_response(text: str) -> Optional[dict]:
             data['bug_detected'] = value
 
         elif key_norm == 'bug_type':
-    norm = normalize_bug_type(value)
-    data['bug_type'] = norm.get('bug_type')
-    # Safely pull the CWE if present; else leave whatever was there
-    data['cwe_id']    = norm.get('id', data.get('cwe_id'))
-    data['category']  = norm.get('category', data.get('category'))
+            norm = normalize_bug_type(value)
+            data['bug_type'] = norm.get('bug_type')
+            # Safely pull the CWE if present; else leave whatever was there
+            data['cwe_id']    = norm.get('id', data.get('cwe_id'))
+            data['category']  = norm.get('category', data.get('category'))
 
 
         elif key_norm == 'bug_reason':
