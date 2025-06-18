@@ -1,6 +1,7 @@
 import os
 import argparse
 import json
+import re
 from dotenv import load_dotenv, find_dotenv
 from openai import AzureOpenAI
 from typing import Optional
