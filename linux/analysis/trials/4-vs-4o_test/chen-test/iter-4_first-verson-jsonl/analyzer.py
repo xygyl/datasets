@@ -1,6 +1,7 @@
 import os
 import argparse
 import json
+import re
 from dotenv import load_dotenv, find_dotenv
 from openai import AzureOpenAI
 
@@ -14,6 +15,7 @@ client = AzureOpenAI(
     api_version=os.getenv("API_VERSION"),
     azure_endpoint=os.getenv("AZURE_ENDPOINT")
 )
+
 
 def get_bot_response(messages, model="gpt-4o", temperature=0):
     """Get a response from the chatbot."""
@@ -35,7 +37,7 @@ def get_bot_response(messages, model="gpt-4o", temperature=0):
 
 
 def analyze_code_for_bugs(file_path):
-    """Send source code to LLM using the static‑analysis prompt."""
+    """Send source code to LLM using the static-analysis prompt and return the raw text."""
     with open(file_path, 'r') as f:
         source = f.read()
 
@@ -45,18 +47,16 @@ def analyze_code_for_bugs(file_path):
         "1. **Undefined Behavior (UB) Analysis**:\n"
         "   - Determine whether the function contains any undefined behavior as defined by the C/C++ standards.\n"
         "   - Common causes include: signed integer overflow, null or invalid pointer dereference, uninitialized variables, "
-        "out-of-bounds array access, strict aliasing violations, misaligned access, or other undefined behaviors defined by the standard.\n"
-        "   - If no UB is present, no explanation is needed.\n\n"
+        "out-of-bounds array access, strict aliasing violations, misaligned access, or other undefined behaviors defined by the standard.\n\n"
         "2. **Bug Analysis**:\n"
         "   - Determine whether the function contains any bugs of any kind, including logic errors, memory issues, concurrency problems, or others.\n"
         "   - Common bug types include: buffer overflows, use-after-free, memory leaks, null pointer dereference, "
-        "integer overflows/underflows, off-by-one errors, and logic flaws.\n"
-        "   - If no bugs are found, no explanation is needed.\n\n"
+        "integer overflows/underflows, off-by-one errors, and logic flaws.\n\n"
         "**IMPORTANT:**\n"
         "- Only report a bug or UB if you are reasonably confident based on the code provided.\n"
         "- If the function appears safe, respond with 'UB Detected: No' and 'Bug Detected: No'.\n"
         "- Do NOT speculate or make assumptions about undefined context.\n\n"
-        "Output format:\n"
+        "Output format exactly as below (use these fields):\n"
         "-----\n"
         "Filename: <path>\n"
         "UB Detected: Yes/No\n"
@@ -77,37 +77,42 @@ def analyze_code_for_bugs(file_path):
     return get_bot_response(messages)
 
 
-def should_write_output(analysis_text: str) -> bool:
-    """
-    Parses the LLM's response to see if either "UB Detected" or "Bug Detected" is "Yes".
-    Returns True if at least one is "Yes"; otherwise False.
-    """
-    ub_line = None
-    bug_line = None
-
-    # Split into lines and look for the relevant fields
-    for line in analysis_text.splitlines():
-        line_stripped = line.strip()
-        if line_stripped.startswith("UB Detected:"):
-            ub_line = line_stripped
-        elif line_stripped.startswith("Bug Detected:"):
-            bug_line = line_stripped
-
-    # If both lines are missing, skip writing
-    if not ub_line and not bug_line:
-        return False
-
-    # Default values if a line is missing
-    ub = ub_line.split(":", 1)[1].strip().lower() if ub_line else "no"
-    bug = bug_line.split(":", 1)[1].strip().lower() if bug_line else "no"
-
-    # Write output if either UB or Bug is "Yes"
-    return (ub == "yes" or bug == "yes")
+def parse_llm_response(text: str) -> dict:
+    """Parse the LLM's analysis text into a structured dict."""
+    result = {}
+    for line in text.splitlines():
+        if ':' not in line:
+            continue
+        key, val = line.split(':', 1)
+        key_norm = key.strip().lower().replace(' ', '_')
+        value = val.strip()
+        if key_norm == 'filename':
+            result['filename'] = value
+        elif key_norm == 'ub_detected':
+            result['ub_detected'] = value
+        elif key_norm == 'ub_reason':
+            result['ub_reason'] = value
+        elif key_norm == 'bug_detected':
+            result['bug_detected'] = value
+        elif key_norm == 'bug_type':
+            result['bug_type'] = value
+        elif key_norm == 'bug_reason':
+            result['bug_reason'] = value
+        elif key_norm == 'bug_caused_by_ub':
+            result['bug_caused_by_ub'] = value
+        elif key_norm == 'confidence':
+            try:
+                result['confidence'] = int(value)
+            except ValueError:
+                result['confidence'] = value
+        elif key_norm == 'fix_suggestion':
+            result['fix_suggestion'] = value
+    return result
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Analyze C/C++ files in a directory and write LLM results to 'out/results.jsonl' if UB or Bug is detected."
+        description="Analyze C/C++ files in a directory and write structured JSONL results to 'out/results.jsonl'."
     )
     parser.add_argument(
         "input_path",
@@ -140,13 +145,13 @@ def main():
             print(f"No analysis returned for: {file_path}")
             continue
 
-        if should_write_output(analysis):
-            record = {
-                "filename": file_path,
-                "analysis": analysis
-            }
+        parsed = parse_llm_response(analysis)
+        # Only write if either UB or Bug detected is Yes
+        ub = parsed.get('ub_detected', '').lower() == 'yes'
+        bug = parsed.get('bug_detected', '').lower() == 'yes'
+        if ub or bug:
             with open(output_file, 'a') as f:
-                f.write(json.dumps(record) + '\n')
+                f.write(json.dumps(parsed) + '\n')
             print(f"Results written to: {output_file}")
         else:
             print(f"Skipping {file_path}: neither UB nor Bug detected.")
