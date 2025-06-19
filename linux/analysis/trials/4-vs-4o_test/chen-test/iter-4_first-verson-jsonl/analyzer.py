@@ -1,119 +1,41 @@
 import os
 import argparse
 import json
-import re
 from dotenv import load_dotenv, find_dotenv
 from openai import AzureOpenAI
-from typing import Optional
 
-# =====================
-# CWE Mapping Table (30+ entries)
-# =====================
-cwe_mapping = {
-    "buffer overflow": {"id": "CWE-120", "name": "Buffer Overflow", "category": "Memory"},
-    "heap overflow": {"id": "CWE-122", "name": "Heap-based Buffer Overflow", "category": "Memory"},
-    "stack overflow": {"id": "CWE-121", "name": "Stack-based Buffer Overflow", "category": "Memory"},
-    "use-after-free": {"id": "CWE-416", "name": "Use After Free", "category": "Memory"},
-    "double free": {"id": "CWE-415", "name": "Double Free", "category": "Memory"},
-    "memory leak": {"id": "CWE-401", "name": "Memory Leak", "category": "Memory"},
-    "null pointer dereference": {"id": "CWE-476", "name": "NULL Pointer Dereference", "category": "Pointer"},
-    "uninitialized variable": {"id": "CWE-457", "name": "Use of Uninitialized Variable", "category": "Pointer"},
-    "integer overflow": {"id": "CWE-190", "name": "Integer Overflow", "category": "Arithmetic"},
-    "integer underflow": {"id": "CWE-191", "name": "Integer Underflow", "category": "Arithmetic"},
-    "off-by-one": {"id": "CWE-193", "name": "Off-by-one Error", "category": "Memory"},
-    "division by zero": {"id": "CWE-369", "name": "Divide By Zero", "category": "Arithmetic"},
-    "format string": {"id": "CWE-134", "name": "Uncontrolled Format String", "category": "Input"},
-    "race condition": {"id": "CWE-362", "name": "Race Condition", "category": "Concurrency"},
-    "logic flaw": {"id": "CWE-840", "name": "Logic Error", "category": "Logic"},
-    "type confusion": {"id": "CWE-843", "name": "Access of Resource Using Incompatible Type", "category": "Type"},
-    "infinite loop": {"id": "CWE-835", "name": "Loop with Unreachable Exit Condition", "category": "Logic"},
-    "deadlock": {"id": "CWE-833", "name": "Deadlock", "category": "Concurrency"},
-    "null dereference": {"id": "CWE-476", "name": "NULL Pointer Dereference", "category": "Pointer"},
-    "dangling pointer": {"id": "CWE-825", "name": "Expired Pointer Dereference", "category": "Pointer"},
-    "incorrect calculation": {"id": "CWE-682", "name": "Incorrect Calculation", "category": "Logic"},
-    "array index out of bounds": {"id": "CWE-129", "name": "Improper Validation of Array Index", "category": "Memory"},
-    "improper input validation": {"id": "CWE-20", "name": "Improper Input Validation", "category": "Input"},
-    "assertion failure": {"id": "CWE-617", "name": "Reachable Assertion", "category": "Logic"},
-    "pointer arithmetic": {"id": "CWE-469", "name": "Use of Pointer Subtraction to Determine Size", "category": "Pointer"},
-    "signed to unsigned conversion": {"id": "CWE-195", "name": "Signed to Unsigned Conversion", "category": "Arithmetic"},
-    "incorrect check of return value": {"id": "CWE-252", "name": "Unchecked Return Value", "category": "Logic"},
-    "undefined behavior": {"id": "CWE-758", "name": "Undefined Behavior", "category": "Semantics"},
-    "memory corruption": {"id": "CWE-704", "name": "Incorrect Type Conversion or Cast", "category": "Memory"},
-    "race condition on shared resource": {"id": "CWE-667", "name": "Improper Locking", "category": "Concurrency"}
-}
-
-
-def infer_bug_category(raw: str) -> str:
-    """
-    Fallback categorization when no direct CWE mapping is found.
-    """
-    raw = raw.lower()
-    if any(word in raw for word in ["pointer", "null", "address", "dangling"]):
-        return "Pointer"
-    if any(word in raw for word in ["overflow", "underflow", "divide", "signed", "arithmetic"]):
-        return "Arithmetic"
-    if any(word in raw for word in ["buffer", "memory", "free", "heap", "stack", "index"]):
-        return "Memory"
-    if any(word in raw for word in ["race", "deadlock", "concurrent", "lock"]):
-        return "Concurrency"
-    if any(word in raw for word in ["type", "cast", "conversion"]):
-        return "Type"
-    if any(word in raw for word in ["input", "format"]):
-        return "Input"
-    return "Logic"
-
-
-def normalize_bug_type(raw_type: str) -> dict:
-    """
-    Normalize a raw bug description to standardized bug_type, cwe_id, and category.
-    """
-    raw = raw_type.lower()
-    for key, info in cwe_mapping.items():
-        if key in raw:
-            return {
-                "bug_type": info["name"],
-                "cwe_id": info["id"],
-                "category": info["category"]
-            }
-    # fallback if no direct mapping found
-    return {
-        "bug_type": raw_type,
-        "cwe_id": None,
-        "category": infer_bug_category(raw_type)
-    }
-
-
-# Load environment variables from .env file
-env_path = find_dotenv('.env')
-if env_path:
-    load_dotenv(env_path)
+# Load environment variables
+env_file = find_dotenv(".env")
+load_dotenv(env_file)
 
 # Initialize Azure OpenAI client
 client = AzureOpenAI(
-    api_key=os.getenv('API_KEY'),
-    api_version=os.getenv('API_VERSION'),
-    azure_endpoint=os.getenv('AZURE_ENDPOINT')
+    api_key=os.getenv("API_KEY"),
+    api_version=os.getenv("API_VERSION"),
+    azure_endpoint=os.getenv("AZURE_ENDPOINT")
 )
 
-
-def get_bot_response(messages, model='gpt-4o', temperature=0) -> Optional[str]:
+def get_bot_response(messages, model="gpt-4o", temperature=0):
+    """Get a response from the chatbot."""
     try:
-        resp = client.chat.completions.create(
+        response = client.chat.completions.create(
             model=model,
             messages=messages,
             max_tokens=3000,
             temperature=temperature,
             top_p=1,
             frequency_penalty=0,
-            presence_penalty=0
+            presence_penalty=0,
+            stop=None
         )
-        return resp.choices[0].message.content
+        return response.choices[0].message.content
     except Exception as e:
         print(f"Error during LLM call: {e}")
         return None
 
 
-def analyze_code_for_bugs(file_path: str) -> Optional[str]:
+def analyze_code_for_bugs(file_path):
+    """Send source code to LLM using the static‑analysis prompt."""
     with open(file_path, 'r') as f:
         source = f.read()
 
@@ -151,70 +73,57 @@ def analyze_code_for_bugs(file_path: str) -> Optional[str]:
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": f"Filename: {file_path}\n\n{source}"}
     ]
+
     return get_bot_response(messages)
 
 
-def parse_llm_response(text: str) -> Optional[dict]:
-    data = {}
+def should_write_output(analysis_text: str) -> bool:
+    """
+    Parses the LLM's response to see if either "UB Detected" or "Bug Detected" is "Yes".
+    Returns True if at least one is "Yes"; otherwise False.
+    """
+    ub_line = None
+    bug_line = None
 
-    for line in text.splitlines():
-        if ':' not in line:
-            continue
+    # Split into lines and look for the relevant fields
+    for line in analysis_text.splitlines():
+        line_stripped = line.strip()
+        if line_stripped.startswith("UB Detected:"):
+            ub_line = line_stripped
+        elif line_stripped.startswith("Bug Detected:"):
+            bug_line = line_stripped
 
-        key, val = line.split(':', 1)
-        # Remove any parenthetical qualifiers like "(1-10)" from the key
-        key = re.sub(r'\s*\(.*\)\s*$', '', key.strip(), flags=re.IGNORECASE)
-        key_norm = key.lower().replace(' ', '_')
-        value = val.strip()
+    # If both lines are missing, skip writing
+    if not ub_line and not bug_line:
+        return False
 
-        if key_norm == 'filename':
-            data['filename'] = value
+    # Default values if a line is missing
+    ub = ub_line.split(":", 1)[1].strip().lower() if ub_line else "no"
+    bug = bug_line.split(":", 1)[1].strip().lower() if bug_line else "no"
 
-        elif key_norm == 'ub_detected':
-            data['ub_detected'] = value
+    # Write output if either UB or Bug is "Yes"
+    return (ub == "yes" or bug == "yes")
 
-        elif key_norm == 'ub_reason':
-            data['ub_reason'] = value
-
-        elif key_norm == 'bug_detected':
-            data['bug_detected'] = value
-
-        elif key_norm == 'bug_type':
-            norm = normalize_bug_type(value)
-            data['bug_type'] = norm.get('bug_type')
-            # Safely pull the CWE if present; else leave whatever was there
-            data['cwe_id']    = norm.get('id', data.get('cwe_id'))
-            data['category']  = norm.get('category', data.get('category'))
-
-
-        elif key_norm == 'bug_reason':
-            data['bug_reason'] = value
-
-        elif key_norm == 'bug_caused_by_ub':
-            data['bug_caused_by_ub'] = value
-
-        elif key_norm == 'confidence':
-            try:
-                data['confidence'] = int(value)
-            except ValueError:
-                data['confidence'] = value
-
-        elif key_norm == 'fix_suggestion':
-            data['fix_suggestion'] = value
-
-    # Only return if UB or Bug detected
-    if data.get('ub_detected', '').lower() == 'yes' \
-    or data.get('bug_detected', '').lower() == 'yes':
-        return data
-
-    return None
 
 def main():
-    parser = argparse.ArgumentParser(description='LLM-based static analyzer for C/C++ files. Outputs JSONL.')
-    parser.add_argument('input_path', help='Path to a C/C++ source file or directory.')
+    parser = argparse.ArgumentParser(
+        description="Analyze C/C++ files in a directory and write LLM results to 'out/results.jsonl' if UB or Bug is detected."
+    )
+    parser.add_argument(
+        "input_path",
+        help="Path to a C/C++ source file or directory containing source files."
+    )
     args = parser.parse_args()
 
     path = os.path.abspath(args.input_path)
+    out_dir = os.path.join(os.getcwd(), 'out')
+    os.makedirs(out_dir, exist_ok=True)
+    output_file = os.path.join(out_dir, 'results.jsonl')
+
+    # Remove existing JSONL to avoid duplicates
+    if os.path.exists(output_file):
+        os.remove(output_file)
+
     targets = []
     if os.path.isdir(path):
         for root, _, files in os.walk(path):
@@ -224,21 +133,23 @@ def main():
     else:
         targets.append(path)
 
-    output_file = 'results.jsonl'
-    with open(output_file, 'a') as f:
-        for fp in targets:
-            print(f"Analyzing: {fp}")
-            resp = analyze_code_for_bugs(fp)
-            if not resp:
-                print(f"No response from LLM for {fp}")
-                continue
-            parsed = parse_llm_response(resp)
-            if parsed:
-                f.write(json.dumps(parsed) + '\n')
-                print(f"Written result for {fp}")
-            else:
-                print(f"No issues detected in {fp}")
+    for file_path in targets:
+        print(f"Analyzing: {file_path}")
+        analysis = analyze_code_for_bugs(file_path)
+        if not analysis:
+            print(f"No analysis returned for: {file_path}")
+            continue
 
+        if should_write_output(analysis):
+            record = {
+                "filename": file_path,
+                "analysis": analysis
+            }
+            with open(output_file, 'a') as f:
+                f.write(json.dumps(record) + '\n')
+            print(f"Results written to: {output_file}")
+        else:
+            print(f"Skipping {file_path}: neither UB nor Bug detected.")
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
