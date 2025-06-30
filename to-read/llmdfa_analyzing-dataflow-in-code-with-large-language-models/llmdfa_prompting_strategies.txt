@@ -1,0 +1,71 @@
+Prompting Strategies in LLMDFA
+
+1. Example Dataflow Query (Section 1, Introduction) 
+   - Prompt:
+     “Does the value of the variable z used at line 13 depend on the value of variable x defined at line 9?”
+   - Purpose: Illustrates basic in-context LLM usage for querying dataflow facts directly from source code.
+
+2. Phase I: Source/Sink Extraction (Section 3.1, Figure 4 left)
+   Prompt Template (Figure 9, Appendix A.2.2):
+   • Fixing Task: Present the last synthesized script and its execution errors; ask the LLM to fix and return a runnable extractor.
+   • Synthesis Task: “Please write a Python script to extract the sources/sinks on AST. You may refer to the AST structure of the example programs, and a skeleton AST traverser program.”
+   • Source/Sink Info: List specification of form S, example programs Espec, and their ASTs T.
+   • Role & Description:
+     – Role: You are a good programmer and familiar with AST of programs.
+     – Description: Please write the Python script traversing AST and identify sources/sinks for data flow analysis.
+
+3. Phase II: Dataflow Summarization (Section 3.2, Figure 4 middle) 
+   Prompt Template (Figure 10, Appendix A.2.2):
+   • Question: “Now I give you a function: [FUNCTION]. Please answer: Does [VAR1] used at line [L1] have the same value as [VAR2] defined at line [L2]? Please think step by step. Return Yes/No with the explanation.”
+   • Few-Shot Examples: Provide 2–3 mini-programs with questions, Yes/No answers, and detailed chain‑of‑thought explanations.
+   • Decision Rules: Enumerate rules (e.g., same variable not overwritten; assignment between variables).
+   • Role & Description:
+     – Role: You are a good Java programmer and understand program semantics.
+     – Description: Determine whether two variables at two lines have the same value.
+
+4. Phase III: Path Feasibility Validation (Section 3.3, Figure 4 right) 
+   Prompt Template (Figure 11, Appendix A.2.2):
+   • Fixing Task: Show the last synthesized Z3 script and its errors; ask for fixes to produce a runnable script.
+   • Path Info: “Here is a path: [path]. Note that variable [X] = 0. Line [N] is in the [true/false] branch of the if-statement with condition [cond].”
+   • Synthesis Task: “Please write a Python script to solve the path condition using Z3 python binding. You can refer to the skeleton: [skeleton]”
+   • Role & Description:
+     – Role: You are a good programmer and familiar with Z3 python binding.
+     – Description: Please write a Python program using Z3 python binding to encode the path condition.
+
+5. Chain‑of‑Thought Prompting (Throughout) 
+   - Add “Please think step by step” in all prompts to elicit intermediate reasoning and improve accuracy.
+
+6. Model Configuration (Evaluation) 
+   - Temperature=0, TopP=1.0, frequency & presence penalties=0.
+   - Each prompt sent in a fresh session to avoid context carryover.
+
+These strategies collectively decompose the complex dataflow analysis task into manageable LLM‑driven subtasks with clear roles, examples, iterative fixing, and structured output requirements.
+
+Results of Prompting Strategies:
+
+Phase I – Source/Sink Extraction:
+- Achieved 100% precision and 100% recall across Divide‑By‑Zero (DBZ), Cross‑Site‑Scripting (XSS), and OS Command Injection (OSCI) benchmarks for all evaluated LLMs (gpt‑3.5, gpt‑4, gemini‑1.0, claude‑3). This demonstrates that the script-synthesis prompts effectively generated reliable extractors.
+
+Phase II – Dataflow Summarization (Few‑Shot CoT Prompting):
+- DBZ: Precision 90.95%, Recall 97.57%, F1 0.94
+- XSS: Precision 86.52%, Recall 96.25%, F1 0.91
+- OSCI: Precision 89.57%, Recall 85.76%, F1 0.88
+- Similar high performance observed with other LLMs (gpt‑4 summarization F1 up to 0.99). Few‑shot CoT prompts aligned the model with semantic patterns, greatly reducing hallucinations.
+
+Phase III – Path Feasibility Validation (Script Synthesis with Z3):
+- DBZ: Precision 81.58%, Recall 99.20%, F1 0.90
+- XSS: Precision 100.00%, Recall 100.00%, F1 1.00
+- OSCI: Precision 100.00%, Recall 97.14%, F1 0.99
+- The validator prompts synthesized correct Z3 scripts within three iterations, effectively filtering infeasible paths.
+
+Overall Detection:
+- Using gpt‑3.5: 
+  • DBZ Detection: Precision 73.75%, Recall 92.16%, F1 0.82
+  • XSS Detection: Precision 100.00%, Recall 92.31%, F1 0.96
+  • OSCI Detection: Precision 100.00%, Recall 78.38%, F1 0.88
+- Comparable results with gpt‑4 (overall F1 up to 0.99) and strong performance from gemini‑1.0 and claude‑3.
+- Average cost per bug-type detection: DBZ $0.14, XSS $0.05, OSCI $0.04.
+
+Comparisons and Ablations:
+- Outperformed CodeFuseQuery (F1: 0.43/0.86/0.67) and end‑to‑end few‑shot CoT analysis (F1: 0.65/0.81/0.60).
+- Ablations without script synthesis or CoT prompting saw F1 drops of over 0.30, confirming the necessity of each decomposed prompt strategy.

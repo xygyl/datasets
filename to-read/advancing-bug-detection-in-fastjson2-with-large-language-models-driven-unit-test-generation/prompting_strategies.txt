@@ -1,0 +1,65 @@
+Prompting Strategies in JSONTESTGEN
+
+1. Self-Generated Summarization (Section III-B):
+   - System Prompt: "You are a helpful assistant."
+   - User Prompt (Summarization - ps): "Summarize what this unit test focuses on."
+   - Purpose: Extracts key information from the original test to provide in-context knowledge for generation.
+
+2. Mutation Guidance (Section III-C):
+   - Five JSON-specific mutation rules included directly in the prompt:
+     1. Extra data validation: add extra getter invocations and assert returned values.
+     2. Extra parsing: add extra parseObject or parseArray invocations.
+     3. Parsing configurations: modify deserialization configuration parameters.
+     4. Serialization configurations: modify serialization settings.
+     5. Modifying beans: change bean class definitions (fields, data types).
+   - Purpose: Guide the LLM to generate diverse and targeted unit tests covering various JSON library features.
+
+3. Test Generation Prompt (Section III-D):
+   - User Prompt (Generation - pgen):
+     "According to the unit test and the summary above, generate a new unit test that tests the same or similar functions. [Write a new test that <mutation rule>.] Include necessary import statements and return a complete test case."
+   - Context Composition:
+     ```
+     System: You are a helpful assistant.
+     User: Here is a unit test:
+     <toriginal>
+     Please summarize what this unit test focuses on.
+     Assistant: <summary>
+     User: According to the unit test and the summary above, generate a new unit test that tests the same or similar functions. [Write a new test that <mutation rule>.] Include necessary import statements and return a complete test case.
+     ```
+   - Purpose: Produce complete, syntactically correct, and semantically meaningful new unit tests tailored by the chosen mutation rule.
+
+Together, these prompting strategies leverage in-context learning and domain-specific guidance to enhance test diversity, correctness, and bug detection efficacy in fastjson2 unit test generation.
+
+Differential-Test Oracle:
+- The paper utilizes differential testing as the test oracle: it compares pass/fail/exception results of generated unit tests across fastjson, fastjson-compatible, and fastjson2 to flag inconsistencies as potential bugs.
+- No dedicated LLM prompt template is provided for this oracle step.
+
+
+Results of Prompting Strategies:
+
+Comparison with Baselines:
+- JSONTESTGEN vs. Zest: 
+  • Instruction coverage improved (parse: 80.00% → 94.29%, parseObject: 38.60% → 100.00%, parseArray: 39.29% → 91.38%, isValid: 51.72% → 89.66%). 
+  • Branch coverage improved (parseObject: 25.00% → 91.67%).
+- JSONTESTGEN vs. ChatUniTest:
+  • Higher coverage on complex classes (JSONPath and JSON) and identified 8 bugs vs. 1 bug by ChatUniTest.
+
+Effect of Summarization:
+- Pass rate increased slightly (without: 54.2% → with: 56.3%).
+- Compile error rate cut by nearly half (without: 25.7% → with: 13.9%).
+- Assertion failure rate rose (20.1% → 29.8%), but failed tests still useful for differential bug detection.
+
+Model Comparison:
+- GPT-3.5 Turbo vs. Llama3:
+  • Coverage without original tests: GPT-3.5 (45.63% instr., 36.16% branch) vs. Llama3 (36.62%, 28.01%).
+  • Coverage with originals: both ~49% instruction, ~39% branch.
+  • GPT-3.5 discovered more unique bugs; Llama3 found two bugs missed by GPT-3.5.
+
+Effectiveness of Mutation Guidance:
+- Tests with mutation had slightly higher combined coverage (instruction: 49.87% vs. 49.10%; branch: 40.31% vs. 39.67%).
+- Mutation prompts uncovered four unique bugs; plain prompts uncovered five; three bugs overlapped.
+- Mutation increased semantic diversity but also compile errors (37.6% vs. 13.8%).
+
+Overall Bug Discovery:
+- Continuous use of JSONTESTGEN found 34 real bugs in fastjson2 (30 fixed), including crash‑ and logic‑only failures.
+- Demonstrated practical value in uncovering non‑crashing functional bugs that fuzzers miss.
