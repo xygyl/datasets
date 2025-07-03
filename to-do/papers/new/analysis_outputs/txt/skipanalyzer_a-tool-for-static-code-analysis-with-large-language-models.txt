@@ -1,0 +1,175 @@
+## 1. Point of the Paper: What is it trying to explore? What makes it unique?
+
+**Point:**  
+The paper introduces "SkipAnalyzer," a tool leveraging Large Language Models (LLMs)—specifically ChatGPT—for *static code analysis* tasks:  
+- Detecting two core bug types (Null Dereference, Resource Leak)
+- Filtering/removing false-positive warnings from static analysis results
+- Automatically generating code patches to fix detected bugs
+
+**Exploration Goals:**  
+- Can LLMs like ChatGPT be effectively used (via prompt engineering) for code analysis tasks generally performed by rule-based/static analysis tools?
+- How do different prompting strategies and model versions affect accuracy in bug detection, false-positive removal, and automated repair?
+
+**Uniqueness:**  
+- **LLM-Driven End-to-End Pipeline:** Unlike prior work, which mostly focuses on specific tasks (like patching or bug detection), it builds an end-to-end LLM-driven pipeline that handles detection, filtering, and repair, aiming to minimize human intervention.
+- **Prompt Engineering Focus:** It systematically evaluates zero-shot, one-shot, and few-shot prompting on code analysis tasks.
+- **No Training Required:** Unlike many prior ML-based static analyzers or patch generators, SkipAnalyzer operates without training/fine-tuning the LLMs, using only prompt engineering.
+- **Benchmarking:** It directly compares LLM-based analysis to state-of-the-art static analysis (Infer) and ML/neural baselines from recent work, giving quantitative boosts.
+
+---
+
+## 2. What dataset did they use?
+
+- **Bug types:** Null Dereference and Resource Leak (typical and critical defects in Java back ends).
+- **Data collection:**  
+  - Used Infer (a leading static analysis tool) to scan 10 open-source Java projects (selected from popular repos, >200 GitHub stars), generating warnings for possible bugs.
+  - All warnings manually verified/triaged by three authors with >4 years experience each—only confirmed true bugs included.
+- **Dataset size:**  
+  - 222 instances of Null Dereference bugs
+  - 46 instances of Resource Leak bugs
+  - Table I in the text lists the specific projects (e.g., nacos, dolphinscheduler, dubbo, bundletool, guava, jsoup, etc.).
+- **Ground truth patches:** For each true bug, participants crafted a correct patch.
+
+---
+
+## 3. What LLM models were used?
+
+- OpenAI's ChatGPT family:
+  - ChatGPT-3.5 Turbo
+  - ChatGPT-4
+- All used via OpenAI API (models not further fine-tuned or retrained for the tasks).
+
+---
+
+## 4. What are the prompting strategies discussed in this paper?
+
+The core prompting strategies for model interaction are:
+
+- **Zero-shot:** The LLM is prompted for the task (e.g., "find the bug in this code"), but *no* example input/output pairs are provided.
+- **One-shot:** The prompt includes one example (input + expected output).
+- **Few-shot:** The prompt includes multiple examples (K=3 for the main experiments), to help the model generalize.
+- **Chain-of-Thought (CoT):** Regardless of the strategy, they sometimes ask the LLM to explain its reasoning, which aligns with "zero-shot CoT" in LLM literature.
+
+Prompt strategies are explored in:
+- Static bug detection (component 1)
+- False-positive filter (component 2)  
+For bug repair (component 3), only zero-shot is feasible due to token length/input size limitations.
+
+---
+
+## 5. Where are the prompt strategies explained?
+
+**Prompt strategies are described in Section V.C ("Prompting Strategies")** of the paper as follows:
+
+> In each of the SkipAnalyzer’s components, we use different prompt engineering strategies such as zero-shot, one-shot, and few-shot strategies. In the zero-shot strategy, the LLM is prompted without preceding examples... few-shot and one-shot strategies incorporate examples [...] the difference is the number of examples... one-shot employs a single example, while few-shot encompasses multiple (K=3). In the first (bug detection) and second (false-positive filter) component, we use all three strategies; for bug repair, only zero-shot is feasible due to token limits.
+
+---
+
+## 6. What are the results of the prompting strategies and how successful or not were they?
+
+**Findings are summarized in Table II and checked in the results section. Key points:**
+
+**Bug Detection**
+- On their dataset, the best results came from ChatGPT-4 + zero-shot:
+    - Null Dereference: 68.37% accuracy, 63.76% precision, 88.93% recall  
+      (12.86% higher precision than Infer)
+    - Resource Leak: 76.95% accuracy, 82.73% precision, 55.11% recall  
+      (43.13% higher precision than Infer)
+    - Other strategies (one-/few-shot) performed well but often not as good as zero-shot for this data/model.
+
+**False-positive Warning Removal**
+- ChatGPT-4, few-shot on Null Dereference: 93.88% precision post-filter (from Infer's 65.2%)  
+  Improvement: +28.68%
+- Resource Leak: Best removal on Infer warnings with ChatGPT-3.5 zero-shot, +9.53% precision
+- In all cases, LLM-based removal is *better* than classical ML baselines from [14].
+
+**Bug Repair**
+- ChatGPT-4, zero-shot, achieves:
+    - Null Dereference: 97.3% logic rate (correct patch), 99.55% syntax rate
+    - Resource Leak: 91.77% logic rate, 97.77% syntax
+    - VulRepair baseline is much lower (e.g., 18.39% and 12.9% logic)
+
+**Summary:**  
+Prompting strategies, especially zero-shot with ChatGPT-4, are very effective—often beating classical static analyzers and ML baselines. Few-shot sometimes helps for false-positive filtering, but token limits can interfere.
+
+---
+
+## 7. Why did one strategy give better results than another?
+
+**Paper's explanation (and literature context):**
+
+- **Zero-shot with ChatGPT-4 performed best on bug detection:** Possible reasons:
+  - The model is large and instruction-tuned—well-primed for "zero-shot reasoning."
+  - The provided prompts are sufficiently detailed/instructive because the authors included bug patterns and explicit instructions (e.g., "look for missing null checks").
+  - Examples can sometimes help—but including too many (few-shot) risks hitting the input token limit, or confuses the model if the examples are not representative.
+- **Few-shot helps in false-positive removal:**  
+  - The extra examples may help the LLM generalize about what counts as a "real" vs "false" warning, especially if the prompt includes both positive and negative examples, improving discrimination.
+
+> "The rationale for selecting K = 3 is... opting for values exceeding three could potentially violate the maximum token limit constraint... In all components, we request the LLM to explain its decision-making process, [as] this approach (zero-shot CoT) can enhance the output's robustness and validity."
+
+**In Short:**  
+- Larger/more powerful models (GPT-4) + detailed instructions enable high zero-shot performance
+- Adding examples can help if token length allows and if the examples are well-chosen
+- CoT (explanations) can steer the LLM to more robust outputs
+
+---
+
+## 8. All specifics of the researcher's prompt strategies
+
+**Prompt Design Details (from Section IV and V):**
+
+- **Component 1: LLM-based static bug detector**
+    - Input: A buggy code snippet (method-level)
+    - Prompt includes:
+        - Explicit bug type and bug patterns for that type (e.g., “look for missing null checks before dereferencing an object”)
+        - Structured output requirements (so the LLM output can be easily parsed)
+        - Optional: 1 (one-shot) or several (few-shot; K=3) input/output examples
+        - Always asks LLM to "explain" its answer/decision
+
+- **Component 2: LLM-based false positive filter**
+    - Input: Code snippet + warning message (from static analyzer)
+    - Prompt includes:
+        - Task description: Is this warning a real bug or a false positive?
+        - Same options for zero/one/few shot strategies
+        - Examples (in one/few shot) include both true and false positive samples to avoid class bias
+        - Again, ask for explanations
+
+- **Component 3: LLM-based patch generator**
+    - Input: Buggy code snippet + warning message
+    - Prompt includes:
+        - Task description: Fix the bug described by this warning.
+        - Detailed instructions about what constitutes a proper patch
+        - Request for an explanation of the change
+        - *Does not* use one-/few-shot, as examples in repair are too large for convenient prompt inclusion
+
+- **General Prompting Details:**
+    - For all few-shot prompts, supporting code/test sizes are selected to avoid exceeding model token length
+    - Chain-of-thought (“explain why you think this is/not a bug”) is requested in all cases
+    - All code samples sent at the method/function level only, for token-length reasons
+    - Examples in K-shot sampling include both true and false cases, randomly sampled with even distribution (per Section V.D)
+    - Cross-validation is used for proper evaluation (5-fold), i.e., example selection is not biased
+
+---
+
+**Location of Prompt Examples in Paper:**  
+Example prompt formulations are not given verbatim in the provided text but are described in process in Section IV ("Approach"), Section V.C ("Prompting Strategies") and in results analysis, with explicit statement of how K-shot examples are constructed.
+
+---
+
+## SUMMARY TABLE
+
+| Paper Aspect              | Key Details                                                                                            |
+|--------------------------|--------------------------------------------------------------------------------------------------------|
+| Point/Purpose            | Test/use LLMs (ChatGPT) for static analysis: bug detection, false positive removal, and repair         |
+| Dataset                  | 10 open-source Java repos, 268 bugs (222 Null Deref, 46 Resource Leak), labeled/triaged, plus patches |
+| LLM Models               | ChatGPT-3.5 Turbo, ChatGPT-4 (OpenAI API)                                                             |
+| Prompting Strategies     | Zero-shot, One-shot, Few-shot (K=3); Chain-of-Thought explanation always requested                     |
+| Where Explained          | Section IV (Approach), Section V.C (Prompting Strategies)                                              |
+| Prompting Results        | Zero-shot + GPT-4 best for detection; few-shot sometimes best for false-positive filtering             |
+| Prompting Effectiveness  | GPT-4 zero-shot: 68.37% acc. (Null Deref), 76.95% (Res Leak); +12%/+43% precision vs. Infer            |
+| Why Some Work Best?      | Model size, detailed instruction, Chain-of-Thought, token constraints, careful example selection       |
+| Prompt Specifics         | Task, bug type, bug pattern, output format, optional in-context examples, required explanation         |
+
+---
+
+If you need actual example prompts or more detail about a specific experimental setup (e.g., how exactly were in-context examples chosen or formatted), I can reconstruct or supply plausible examples based on the descriptions in the text. Just ask!

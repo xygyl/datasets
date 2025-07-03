@@ -1,0 +1,149 @@
+## 1. What is the point of this paper? What is it trying to explore? What makes it unique?
+### Point and Exploration:
+This paper addresses the **problem of hallucination** (false or incorrect outputs) in LLM-based bug detection for code. The main **goal** is to improve the reliability and precision of bug detectors that use Large Language Models (LLMs) by **mitigating hallucinated bug reports**.
+
+Traditional bug detection relies on static analysis and compilation, which is hard for incomplete or non-compilable code and requires expert customization. LLM-based approaches seem promising but suffer from hallucinations due to poor alignment with program semantics.
+
+### What makes it unique:
+- **Data-Flow Paths as Proofs**: The novelty is in forcing LLMs to produce **data-flow paths** (step-by-step propagation of faulty values leading to a bug) as **explicit proof or evidence** for bug reports, rather than just natural language explanations.
+- **Sanitization Pipeline (LLMSAN)**: They introduce **LLMSAN**, a sanitization pipeline that decomposes the validation of these data-flow paths into smaller, checkable properties, using both deterministic (parsing-based) checks and additional LLM-querying (to check nuanced semantic properties).
+- **Hybrid Human-LLM System**: The hybrid use of both classic parsing/static analysis and LLM-based reasoning, applied to small local code snippets for scalable and explainable validation.
+- **Few-shot Customization with No Compilation Required**: Non-expert users can specify buggy patterns with only examples—not complex queries or compilable code.
+- **Open-source Implementation and Systematic Evaluation**: They make their system open source and evaluate on both synthetic (Juliet Test Suite) and real-world (TaintBench) datasets.
+
+---
+
+## 2. What dataset did they use?
+Two primary datasets:
+- **Juliet Test Suite**: A synthetic benchmark covering typical bug types (CWE categories), such as Absolute Path Traversal, Cross-Site Scripting (XSS), OS Command Injection, Divide-by-Zero, and Null Pointer Dereference. They sampled 100 programs per bug type.
+- **TaintBench**: Real-world Android malware applications (39 apps, 203 taint flows), used for evaluating practical utility. The challenge is to detect sensitive data leaks, requiring the ability to customize detection logic.
+
+---
+
+## 3. What LLM models were used?
+They experiment with four LLMs:
+- **gpt-3.5-turbo-0125** (“gpt-3.5”)
+- **gpt-4-turbo-preview** (“gpt-4”)
+- **gemini-1.0-pro** (“gemini-1.0”)
+- **claude-3-haiku** (“claude-3”)
+
+LLMSAN is evaluated independently with each of these models.
+
+---
+
+## 4. What are the prompting strategies discussed in this paper?
+### The core strategy:
+- **Few-Shot Chain-of-Thought (CoT) Prompting**: Providing several buggy code snippets, each with explanation and data-flow path, to teach the LLM how the bug manifests.
+- **Explicit Data-Flow Path Generation**: Rather than only asking the LLM “where are the bugs?” or for free-form explanations, the LLM is **instructed to emit data-flow paths** showing how a value (e.g., zero, null, tainted) travels through the code to trigger a bug.
+
+### During *sanitization*, there are two levels of prompting:
+- **Functionality Sanitizer**: Prompts the LLM with a code snippet/function and asks, “can variable X at line Y be zero/null/tainted?” with step-by-step reasoning.
+- **Reachability Sanitizer**: Given two code locations, prompts the LLM to decide: “can the value from variable X at line Y propagate to variable Z at line W?” with step-by-step reasoning.
+
+**Prompt formats are explicit, template-driven, and example-based.**
+
+---
+
+## 5. Where are the prompting strategies explained?
+- **Section 4 'LLM Sanitization for Bug Detection'** (and subsections 4.1 & 4.2): Prompt templates for Functionality and Reachability Sanitizers are shown in Figures 5 and 6.
+- **Section 3**: Explains how few-shot CoT prompting is used for data-flow path generation.
+- **Summary Table**: Shows the strategies for decomposition and sanitization.
+
+---
+
+## 6. What are the results of the prompting strategies, and how successful or not were they?
+### Main results using **LLMSAN + prompting**:
+- **Juliet Suite**: Precision of **91.03%**, recall of **74.00%** (with GPT-4; see Table 3).
+    - This is a significant improvement (precision boosted by **21.99%**) compared to prompting without sanitization (FSCoT baseline).
+    - Up to **78% of spurious (hallucinated) bug reports** detected by pure LLM prompting are pruned away by the sanitization steps.
+- **TaintBench/real-world**: Precision of **44.04%**, recall of **improved compared to baseline**; outperforming CodeFuseQuery by 15.36% precision and 3.61% recall, with less expert effort needed.
+
+**Ablation and baseline comparisons** show that:
+- Simple prompting (even CoT or self-consistency) on its own cannot reliably identify or remove hallucinated bug reports.
+- LLMSAN achieves this reliability with minimal token/cost overhead.
+
+---
+
+## 7. Why did one strategy give better results than another?
+- **Pure prompting (FSCoT, Ask-Check, CoT-Check, SC-CoT-Check) suffers from hallucinations**: LLMs are not consistently aligned with code semantics; they may overstate bugs, miss control/data-flow subtleties, or inconsistencies.
+- **Sanitization works better because**:
+    - It decomposes checking into atomic properties on small code snippets (much easier for LLMs to understand and verify).
+    - It uses deterministic parsers/static checks where appropriate (syntactic/type/order checks).
+    - It only uses LLMs for the nuanced, context-sensitive queries (functionality, reachability) — focusing model “attention” and reducing ground for hallucination.
+    - Multiple independent checks “cross-validate” the data-flow evidence, making false positives much less likely.
+
+---
+
+## 8. All specifics of the researcher's prompt strategies.
+
+**The paper uses two main prompt templates for semantic validation ("sanitizers"):**
+
+### A. Functionality Sanitizer Prompt Template
+- **Purpose:** Checks if the start or end value in a data-flow path (e.g., a division operand, or a variable being assigned) can have the “faulty” value (e.g., zero, null, tainted).
+- **Prompt Structure (see Fig. 5):**
+    - Several few-shot buggy code examples are given (“Examples” block).
+    - Target function code snippet is inserted.
+    - Task is: Analyze [function]; check if [value] at line [number] can be zero/null/tainted. Think step-by-step and conclude with Yes or No.
+
+**Example Instantiation:**
+```
+Examples: [multiple examples showing how a value becomes zero]
+Task: Analyze the code: [target function code]. Please check whether [value] at line [n] can be zero. Please think step by step and conclude the answer with Yes or No.
+```
+
+### B. Reachability Sanitizer Prompt Template
+- **Purpose:** Checks whether, in a given code context, a value at one program point can actually propagate to another program point; i.e., is the data/bug path feasible?
+- **Prompt Structure (see Fig. 6):**
+    - Several few-shot buggy code examples given (“Examples” block).
+    - Two functions or code snippets inserted.
+    - Task: Analyze [function1], [function2]; check if [variable1] at line [n1] can be propagated to [variable2] at line [n2]. Think step-by-step and conclude Yes or No.
+
+**Example Instantiation:**
+```
+Examples: [examples of taint propagating to a sink]
+Task: Analyze [function1], [function2]. Please check whether [value1] at line [lineno1] can be propagated to [value2] at line [lineno2]. Think step by step and conclude the answer with Yes or No.
+```
+
+### C. Syntactic Sanitizers (Type and Order)
+- **Type Sanitizer:** Uses a parser to check if the types of the start and end values in a data-flow path are plausible, based on the few-shot examples.
+- **Order Sanitizer:** Uses a parser to check if the control-flow order from the data source to the bug sink is feasible.
+
+### D. Sanitization Workflow
+1. **Enforce LLM to emit data-flow paths** via few-shot CoT prompting.
+2. **Apply four checks ("sanitizers"):**
+    - **Type** (parsing): Start/end types match expected.
+    - **Functionality** (LLM-prompt): Origin/sink value can actually be faulty.
+    - **Order** (parsing): Control-flow order is valid.
+    - **Reachability** (LLM-prompt): Path is semantically feasible step-by-step.
+
+- If all sanitizers pass, the bug report is accepted as valid. If any reject, the path is considered spurious (a hallucination).
+
+### E. Strategy Details:
+- **Code snippets for prompts are kept local and small** (single function or a few lines) to maximize LLM accuracy, avoid prompt budget overrun.
+- **Temperature is set to 0 (greedy) for reliability** in sampling LLM outputs for these checks.
+- **Multiple promptings for path steps performed** for multi-step (multi-edge) dataflows: reachability between every pair of adjacent nodes.
+
+### F. Prompting for Customization
+- Users provide few-shot code+explanation+data-flow path examples for their bug type of interest (DBZ, taint flow, etc.). No “formal specification” or compilation is needed.
+
+---
+
+## [Summary Table]: Where are each of these in the text?
+- **Prompt strategy explanation & templates:** Section 4, Figures 5 (Functionality), 6 (Reachability).
+- **Data-flow path few-shot prompting:** Section 3, Figure 4.
+- **Sanitizer explanations:** Section 4 (all subsections).
+- **Ablation and effectiveness:** Section 5 (Results + Ablations), Table 3, Table 4.
+- **Baselines and comparisons:** Section 5.2, 5.3, etc.
+
+---
+
+# TL;DR
+- **LLMSAN** is a method for reliable bug detection using LLMs, with hallucination mitigation.
+- It works by prompting the LLM to output **data-flow paths as bug evidence**, and then sanitizes these paths with four systematic checks (syntactic+semantic via parser+LLM).
+- Datasets: Juliet Test Suite & TaintBench.
+- LLMs: GPT-3.5, GPT-4, Gemini, Claude-3.
+- Prompting strategies: chain-of-thought, few-shot, code+path explanation, explicit path validation via LLM.
+- LLMSAN’s sanitization is much more reliable than simple CoT or self-consistency prompting, achieving much higher precision with a small computational overhead.
+- Prompt templates are detailed, code-focused, and customized to each step/property validated.
+
+If you need raw examples of the prompts or more on a specific sanitizer, let me know!

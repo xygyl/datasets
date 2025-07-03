@@ -1,0 +1,113 @@
+**1. What is the point of this paper? What is it trying to explore? What makes it unique?**
+
+**Point and Exploration:**  
+The paper proposes a *new approach* to static program analysis by interleaving calls between a traditional static analyzer and a Large Language Model (LLM). Specifically, it explores improving the inference of *error specifications* (i.e., the set of values a function may return upon error) in C system code. The main goal is to capture more accurate and complete error specifications, which helps in program understanding and in detecting bugs related to error handling.
+
+**Uniqueness:**  
+- The uniqueness lies in the *interleaving* of static analysis (using the EESI tool) and LLM prompting: intermediate results from the static analyzer are fed into the LLM as context; LLM-suggested specifications are fed back into subsequent static analysis.
+- It positions itself distinctly from prior works by integrating static analysis with LLMs at each step, not just as post-processing or filtering.
+
+> *"Our approach interleaves calls to the static analyzer and the LLM: the prompt used to query the LLM is constructed using intermediate results from the static analysis, and the result from the LLM query is used for subsequent analysis of the program."*
+
+---
+**2. What dataset did they use?**
+
+The dataset consists of **six real-world C programs**, chosen to represent a diversity of system/application types and error-handling patterns:
+
+- Apache HTTPD
+- LittleFS
+- MbedTLS
+- Netdata
+- PidginOTRv4
+- zlib
+
+(Table 1 and 2 list program names, lines of code, versions, and statistics about functions.)
+
+---
+**3. What LLM models were used?**
+
+**GPT-4** (from OpenAI) was used as the LLM for inference.
+
+> *"...our LLM error specification inference uses GPT-4 [18] as the LLM."*
+
+---
+**4. What are the prompting strategies discussed in this paper?**
+
+There are two main prompting strategies, reflecting two situations:
+
+- **queryLLMThirdParty:** Used for third-party functions where source code is unavailable. The prompt provides the function's name, and as *function context*, supplies known error specifications from other functions already inferred.
+- **queryLLMAnalysis:** Used for functions where static analysis (EESI) fails to infer an error specification (returns ⊥). The prompt provides the source code of the function plus any known error specifications of directly called functions.
+
+Both strategies build prompts by combining:
+- A *CommonContext*: overall problem description, explanation of the error spec inference task, definitions of the abstract domain (e.g., what <0 or =0 mean for error), observed idiomatic practices, and possibly chain-of-thought examples and formatting instructions.
+- *FunctionContext*: information about error specifications of other relevant functions (the set depends on prompt type).
+- *Question*: asks the LLM to return errorspecifications for the given function (by name or source).
+
+Additionally, the authors include *few-shot and chain-of-thought examples* in the prompt to constrain the format and guide the LLM’s reasoning.
+
+Details of prompt structure are in Section 4.1.
+
+---
+**5. Where are the prompt strategies explained?**
+
+Prompt construction and prompt strategies are *explicitly explained in Section 4.1: Building Prompts* (see also the earlier summary “The specifics about the LLM prompt construction; viz, CommonContext, FunctionContext, and Question, are deferred to Section 4.1” in Section 3).
+
+Algorithm 1 lays out concretely the two cases where each LLM querying function is called.
+
+---
+**6. What the results of the prompting strategies are and how successful or not were they?**
+
+**Summary of Results:**
+- **Compared to using EESI (static analysis) alone:** The combined approach *dramatically* improves recall and F1-score while maintaining similar high precision.
+    - Recall: Raised from an average of 52.55% (EESI alone) to 77.83% (combined).
+    - F1-score: Increased from 0.612 to 0.804.
+    - Precision: Stayed high (EESI: 86.67%, Combined: 85.12%).
+
+**- queryLLMThirdParty** in isolation increases recall by ~29% (esp. useful for codebases with lots of 3rd-party functions).
+**- queryLLMAnalysis** in isolation increases recall by ~60%, and even more in some benchmarks (e.g., ApacheHTTPD: +183.33%).
+
+Still, the **combined interleaving** approach is *best overall*:
+> “In Figure 4, our combination of prompting strategies to the LLM only improved upon the total number of inferred error specifications (Figure 4a), obtaining the highest recall (Figure 4c), and F1 (Figure 4d), while maintaining a similar precision…”
+
+*Precision sometimes drops a little, but recall and F1 increase dramatically, which is highly significant.*
+
+---
+**7. Why did one strategy give better results than another?**
+
+The effectiveness of each strategy depends on codebase composition:
+
+- **queryLLMThirdParty** is most useful when many functions are third-party (source unavailable); only the LLM can infer their specifications, using clues from the rest of the project. EESI can’t handle these at all.
+- **queryLLMAnalysis** helps where static analysis stumbles, e.g., due to incomplete facts or deep semantics that escape the abstract interpreter; the LLM, given precise prompts with current program facts and function context, can *reason using broader real-world knowledge* and supply correct error specs.
+- *Combined*, the two cover one another’s blindspots: EESI handles standard/obvious specs, LLM handles ambiguous/unknown/3rd-party, and the information is mutually reinforcing.
+
+> “We specifically highlight the advantages that each component has demonstrated, where queryLLMThirdParty demonstrated great success in assisting analyze benchmarks with a significant majority of third-party functions ... where queryLLMAnalysis has demonstrated great success in analyzing function bodies directly, inferring error specifications in scenarios such as their called context.”
+
+---
+**8. All specifics of the researcher's prompt strategies.**
+
+**Prompt Structure**
+For both prompt strategies, the prompt is composed of:
+- **CommonContext:** Problem definition; domain rules; explanation of the abstract domain; idiomatic constraints (e.g., error values subset of return values, ⊥ means unknown, success codes not error, 0 equals NULL, error codes are positive, macros may check/return on failure). Also includes *example function/error spec pairs with chain-of-thought explanations* to guide the LLM in formatting and reasoning.
+- **FunctionContext** (differs based on strategy):
+    - **queryLLMThirdParty:** Provides *all* known error specs from facts inferred so far.
+    - **queryLLMAnalysis:** Provides error specs of only directly called functions in the body of the function being analyzed.
+- **Question:**
+    - For queryLLMThirdParty: "Given function [name], what is its error specification?" (no code, since code is unavailable)
+    - For queryLLMAnalysis: Supplies actual source code of the function of interest and asks for its error specification.
+
+**Prompt Building Example:**
+- CommonContext: Problem description, rules, examples of input and desired output in correct format (to encourage parseable, constrained output).
+- FunctionContext: E.g., “mbedtls_asn1_get_tag: <0” (i.e., the known error spec of a callee, as few-shot example)
+- Question: The code of, say, x509_get_attr_type_value plus "What is this function’s error specification?”
+
+**Self-consistency & Validation:**  
+- Each prompt is *asked multiple times* and answers compared for consistency (to reduce LLM hallucinations).
+- If the LLM’s output doesn’t match the expected format, or it includes a known success value as error, or gives an improper superset of allowable return values, the inferred value is dropped (results in ⊥).
+
+Algorithm 1 in the paper (Section 4.2) formalizes precisely how/where each strategy comes into play during the analysis loop.
+
+---
+**In summary**, the research:
+- Delivers a novel, practical, and empirically validated method that uses LLMs to directly and systematically enhance static analysis for error specification inference in C programs.
+- The prompting strategies are detailed, thoughtful, and grounded in both abstract interpretation theory and recent LLM prompting best practices.
+- The combined static + LLM approach achieves major recall/F1 gains with near-constant precision, outperforming both techniques in isolation.

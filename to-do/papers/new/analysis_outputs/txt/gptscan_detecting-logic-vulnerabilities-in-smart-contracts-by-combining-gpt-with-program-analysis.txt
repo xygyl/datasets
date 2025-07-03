@@ -1,0 +1,140 @@
+## 1. What is the point of this paper? What is it trying to explore? What makes it unique?
+
+**Point/Goal:**  
+- The paper proposes **GPTScan**, a novel tool for detecting *logic vulnerabilities* in smart contracts.  
+- Its goal is to go beyond the vulnerabilities detected by existing static/dynamic tools (which mostly cover pattern-based bugs like reentrancy or overflows) and *find complex, business-logic-related vulnerabilities* that comprise the majority in recent security incidents but are missed by most tools.
+
+**Exploration:**  
+- How recent *Large Language Models (LLMs)*, specifically GPT-3.5 (and to some extent GPT-4), can be combined with program analysis to detect hard-to-check logic bugs in smart contracts.
+- Whether GPT can be reliably and cost-effectively incorporated as a code-understanding engine for this purpose.
+
+**Uniqueness:**  
+- Instead of only using GPT for high-level “yes/no” vulnerability queries (which prior work tried, with poor results), it employs GPT for *understanding code semantics at a function level*, breaking down vulnerabilities into specific code scenarios and properties (rather than just abstract descriptions).
+- It combines LLM-based prompts for semantic understanding with a static confirmation step using program analysis, minimizing the typical high false-positive rate when using LLMs alone.
+- It introduces prompt engineering tricks (e.g., “mimic-in-the-background”) and multi-step prompting strategies to make LLM answers more reliable and consistent.
+
+---
+
+## 2. What dataset did they use?
+
+**Datasets and details:**  
+1. **Top200**:  
+   - 303 projects with top market capitalization (trusted, widely used, assumed to have few or no vulnerabilities, mainly for testing false positives)
+   - 555 files, 134,322 LoC, 0 ground-truth logic vulnerabilities
+
+2. **Web3Bugs**:  
+   - 72 large real-world projects, derived from Code4rena-audited project dataset (audited for logic bugs), average 36 Solidity files per project
+   - 2,573 files, 319,878 LoC, 48 ground-truth logic vulnerabilities
+
+3. **DefiHacks**:  
+   - 13 real-world DeFi token contracts with a history of exploits, from the “DeFi Hacks” dataset.
+   - 29 files, 17,824 LoC, 14 ground-truth logic vulnerabilities
+
+**Summary:** ~400 projects, ~3,100 Solidity files, ~472K lines, 62 ground-truth logic bugs
+
+---
+
+## 3. What LLM models were used?
+
+- **GPT-3.5-turbo** (main model; OpenAI, API used for primary experiments).
+- Also tested **GPT-4** (no substantial improvement, but 20× the cost).  
+- No results reported for Claude or LLaMA (left for future work).
+
+---
+
+## 4. What are the prompting strategies discussed in this paper?
+
+**Main Prompting Strategies:**
+- **Scenario and Property Matching**: GPT is prompted with specific code fragments and asked targeted Yes/No questions about "does this code implement scenario X?" and "does property Y hold in this code?"  
+    - Two-stage: first, scenario (i.e., function-level purpose); second, property (i.e., vulnerable patterns).
+- **Mimic-in-the-background Prompting**: To make answers more deterministic and robust, the prompt directs the LLM to "mimic five times in the background and output the most frequent answer."
+- **Explicit JSON-format Responses**: Prompts require replies in strict machine-parseable formats (e.g., JSON or fixed phrases "Yes"/"No").
+- **Instruction Tuning for Output Consistency**: System prompts explicitly tell GPT it's a "smart contract auditor" and to strictly adhere to required output without extra explanations.
+- **Dynamic Extraction of Variables/Statements**: GPT is asked follow-up questions to extract key code variables/statements related to the vulnerability, including short descriptions (see Figures 4, 5).
+- **Multi-dimensional Filtering**: Pre-prompted filtering on function names, contents, parameter types, etc., before LLM queries.
+
+---
+
+## 5. Where are the prompt strategies explained?
+
+- **Prompting templates/strategies** are detailed in **Section 4.2 (GPT-based Scenario and Property Matching)** and shown in **Figure 4** (“Prompt for scenario and property matching”) and **Figure 5** (“Prompt for finding related variables/statements”).
+- The overall prompt approach and motivation are discussed across Sections **4.1–4.4**.
+
+---
+
+## 6. What the results of the prompting strategies are and how successful or not were they?
+
+### Overall Results:
+- On well-audited projects (Top200, DefiHacks, mostly tokens): **high precision (~90%)**, *very low* false positive rate (~4% in Top200; 90.91% precision in DefiHacks).
+- On large, diverse projects (Web3Bugs): **moderate precision (57.14%)**—still outstanding given the nature of the bugs; recall of **83.33%**; F1 score **67.8%**.
+- Outperformed both existing static tools (Slither, MScan) and prior GPT-only studies (which suffered from recall and an overwhelming false positive rate, e.g., 96% false positive in previous GPT-4 work).
+- GPTScan identified **9 new vulnerabilities** (missed by human audit).
+
+**Prompting strategy impact:**
+- The "mimic-in-the-background" trick and strict formatting (determinism) led to **consistently more reliable outputs** (less randomness compared to standard GPT-3.5 usage).
+- The two-step scenario/property matching allowed *early filtering* to avoid unnecessary/expensive LLM queries, and improved both cost and result clarity.
+- **Static confirmation step** (after LLM prompting) further reduced false positives by **~66%** (from 647 to 221 candidate functions)—see Table 4.
+
+---
+
+## 7. Why did one strategy give better results than another?
+
+**GPT-only strategies** (e.g., previous works/naive prompting):
+- High-level, natural language prompts like "is this contract vulnerable to X?" without static guidance, or expecting GPT to recall vulnerability patterns from pre-training, resulted in *very high false positives and missed logic bugs*. LLMs hallucinate, bias, or are inconsistent under randomness.
+
+**GPTScan's multi-step prompting & confirmation strategy:**
+- **Combined semantic LLM understanding + pattern- and dataflow-based filtering:** Breaking vulnerabilities into concrete code scenarios/properties instead of abstract descriptions helps GPT reliably match code to bug types.
+- **Scenario filtering** at the start narrows candidate functions, decreasing LLM burden and cost.
+- **Explicit variable/statement extraction** by GPT helps bridge gap between semantic understanding and what static analyzers can trace/confirm.
+- **Static confirmation** (deterministic program analysis) then checks LLM-extracted code features, removing many LLM-induced false positives.
+- **Prompt engineering tricks** like determinism (temperature=0, mimic-in-the-background, fixed output format) reduce misleading outputs or ambiguity.
+
+**Key finding:**  
+The combination of highly targeted, step-wise prompting and deterministic static checks drastically improves both the reliability and precision of the results.
+
+---
+
+## 8. All specifics of the researcher's prompt strategies
+
+**Prompting Steps:**
+
+1. **Function Filtering (Pre-LLM):**
+   - Multi-dimensional: By name (keywords), content (expressions/combinations), parameter types, and caller relationships (see FNK, FCE, FCCE, FPNC, FPT, FNM, etc.).
+
+2. **Scenario Matching (Step one, LLM):**
+   - Prompt: "Given the following smart contract code, does it implement scenario [X]? Answer Yes/No. Use JSON: {'1':'Yes','2':'No'}"
+   - LLM is told to answer each scenario, strictly in required format.
+
+3. **Property Matching (Step two, LLM):**
+   - Only for functions that passed scenario filtering.
+   - Prompt: "Does the following smart contract code [implement property X]? Answer Yes or No."
+   - JSON format enforced.
+
+4. **Mimic-in-the-background (LLM trick):**
+   - LLM is told in the system prompt: "Mimic answering in the background 5 times; return the most frequent answer. Do not explain."
+   - Used because GPT-3.5 output is otherwise slightly non-deterministic, even at temp=0.
+
+5. **Variable/Statement Extraction (LLM):**
+   - For matched functions, further prompts ask LLM to "Identify the variable holding [key concept, e.g., total supply], and describe it in a section starting with VariableA: ... VariableB: ..."
+   - Output: Structured JSON, variable names mapped to short descriptions.
+
+6. **Static Confirmation (Static analysis):**
+   - The extracted variables/statements are then passed to logic for dataflow tracing (DF), value comparison (VC), order checking (OC), or function argument analysis (FA), to confirm that the LLM's semantic assessment is valid at the code-level.
+
+7. **All at temp=0 for determinism.**  
+   - GPT usually sees a fresh session for every query (no history leakage).
+
+---
+
+### Attack Classes Modeled (Table 1 and Section 4.2)
+
+- Scenarios and properties are **manually written** for 10 selected logic vulnerabilities (out of the 26 in the Web3Bugs dataset) representing 6 business-logic-oriented vulnerability families (e.g., risky first deposit, price manipulation by AMM, vote manipulation by flash loan, wrong checkpoint order, slippage, unauthorized transfer, etc.).
+- Each case includes:
+    - **Scenario**: Describes where/when the bug might occur, at a code level.
+    - **Property**: The specific unsafe code attribute/operation.
+- Filtering types specified: e.g., function-name keyword, content expression, parameter type, etc.
+- Static check methods specified per-attacks: dataflow, value comparison, order check, function argument analysis.
+
+---
+
+If you need example prompt wordings or more details about the filtering rules and exact matching process, let me know! The supplemental tables (Table 1, Table 4) and Figures 4/5 in the paper include the explicit prompt layouts and templates as used in this study.
