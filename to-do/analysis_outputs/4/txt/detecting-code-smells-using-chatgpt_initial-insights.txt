@@ -1,0 +1,150 @@
+### 1. What is the point of this paper? What is it trying to explore? What makes it unique?
+
+**Point of the paper:**
+The paper aims to explore **the effectiveness of ChatGPT (an LLM)** in detecting code smells in Java codebases. Code smells are patterns in code that may indicate deeper problems and suggest the need for refactoring.
+
+**What it is trying to explore:**
+- Can ChatGPT automatically identify code smells when prompted generically or specifically?
+- How does prompt specificity affect detection quality?
+- How does the severity of a smell affect detection accuracy?
+
+**What makes it unique:**
+- It is **the first study focusing on detecting code smells using LLMs (specifically ChatGPT),** as opposed to traditional static analyzers or handcrafted heuristics.
+- It compares **two prompting strategies** (generic vs. specific).
+- It systematically measures performance across **different code smell types** and **severity levels**, providing nuanced insights into where LLMs succeed and struggle in software quality tasks.
+
+---
+
+### 2. What dataset did they use?
+
+- The study uses the **MLCQ dataset** ([Madeyski and Lewowski, 2020]), a large, industry-relevant Java code smell dataset.
+- The dataset covers **four code smells**: Blob, Data Class, Feature Envy, Long Method.
+- Each instance is classified by **severity**: None, Minor, Major, Critical.
+- For this study, they **filtered out 'None' severity**, working with 3,291 instances: 974 Blob, 1,057 Data Class, 454 Feature Envy, 806 Long Method (across Minor, Major, and Critical).
+- Some samples were further removed due to inaccessible GitHub repos or token limit issues.
+
+---
+
+### 3. What LLM models were used?
+
+- **ChatGPT version 3.5-turbo** was used for the experiments.
+
+---
+
+### 4. What are the prompting strategies discussed in this paper?
+
+Two prompting strategies:
+
+1. **Generic Prompt (Prompt #1):**  
+   - Asks ChatGPT if there are any code smells in a given block of Java code, without specifying which types to look for.
+   - Simulates a "blind" or open-ended assessment.
+
+2. **Specific Prompt (Prompt #2):**  
+   - Lists the four code smells (Blob, Data Class, Feature Envy, Long Method) and asks ChatGPT to check for at least one of them in the code.
+   - Provides explicit instructions (task-specific prompt engineering).
+
+Both prompts ask for *only* the smell names found, not descriptions.
+
+---
+
+### 5. What specific prompts were used?
+
+**Prompt #1 (Generic):**
+```
+I need to check if the Java code below contains code smells (aka bad smells). Could you please identify which smells occur in the following code? However, do not describe the smells, just list them. Please start your answer with “YES I found bad smells” when you find any bad smell. Otherwise, start your answer with “NO, I did not find any bad smell”. When you start to list the detected bad smells, always put in your answer “the bad smells are:” amongst the text your answer and always separate it in this format: 1.Long method, 2.Feature envy...
+[Javasourcecodewiththesmell]
+```
+
+**Prompt #2 (Specific):**
+```
+The list below presents common code smells (aka bad smells). I need to check if the Java code provided at the end of the input contains at least one of them.
+*Blob
+*DataClass
+*FeatureEnvy
+*LongMethod
+Could you please identify which smells occur in the following code? However, do not describe the smells, just list them. Please start your answer with “YES I found bad smells” when you find any bad smell. Otherwise, start your answer with “NO, I did not find any bad smell”. When you start to list the detected bad smells, always put in your answer “the bad smells are:” amongst the text your answer and always separate it in this format: 1.Long method, 2.Feature envy...
+[Javasourcecodewiththesmell]
+```
+
+---
+
+### 6. Where are the prompt strategies explained?
+
+- **Section 2.2 Prompts Definition** explains both prompt strategies with rationale and iterative refinement.
+- **Figure 1** (Prompt #1) and **Figure 2** (Prompt #2) show the exact prompts.
+- Further explanation appears in Section 3 (Research Questions) and in the 'Discussion and Future Work' (Section 7).
+
+---
+
+### 7. What are the results of the prompting strategies, and how successful or not were they?
+
+**Prompt #1 (Generic):**  
+- Generally poor performance, especially for Blob (detected 0 true positives).
+- Best F-measure on Long Method (0.41).
+- Data Class had high precision (0.52) but very low recall (0.06), F-measure 0.11.
+- Feature Envy performed poorly (F-measure 0.23).
+
+**Prompt #2 (Specific):**  
+- **Significant improvement for Data Class (F-measure rose from 0.11 to 0.59).**
+- Some improvement (but still below 0.5 F-measure) for Long Method (to 0.46) and Feature Envy (declined to 0.21).
+- Blob could now be detected, though weakly (F-measure 0.19).
+- **McNemar’s statistical test:** Prompt #2 gives ChatGPT a 2.54 times higher chance of correct results (16% absolute improvement overall).
+- **Severity matters:** Critical severity smells saw higher F-measure (0.52) than minor severity (0.43) with Prompt #2.
+
+**Overall:**  
+- Specific prompts (Prompt #2) significantly outperform generic ones (Prompt #1), especially for simpler code smells like Data Class and at higher severity.
+- ChatGPT struggles with context-dependent smells (Blob, Feature Envy).
+
+---
+
+### 8. Why did one strategy give better results than another?
+
+- **Specificity helps**: Telling ChatGPT exactly which smells to look for helps it focus, reduces ambiguity, and improves pattern matching and alignment to the task.
+- **Generic prompts** require the model to recall all possible smells from its general training, making it more likely to generalize poorly or miss specific types, especially for specialized or subtle smells.
+- **Complex smells** (e.g., Blob, Feature Envy) require understanding code context not present in a code snippet; both strategies struggle here, but specificity still helps slightly.
+- **Severity**: Critical or major smells often have more obvious "signatures" (like very long classes or methods), making them easier for the LLM to spot.
+
+---
+
+### 9. All specifics of the researchers' prompt strategies
+
+- **Prompt design**:  
+  - Output is strictly structured: “YES I found bad smells” / “NO, I did not find any bad smell,” followed by the phrase “the bad smells are:” and a numbered/separated list.
+  - Output formatting was used to enable automatic parsing but was manually corrected in rare cases where the format was not followed.
+
+- **Prompt #1**:
+  - Open, generic, does NOT mention specific smells.
+  - Used as a baseline to assess ChatGPT's “out of the box” knowledge and generalization.
+
+- **Prompt #2**:
+  - Explicitly names the code smells to look for.
+  - More guidance ("task-specific"); simulates an informed tool use case.
+
+- **Iterative refinement**:  
+  - Both prompts were refined via pilot tests and experimentation for clarity and consistency, focusing on minimizing ambiguity.
+
+- **Evaluation**:  
+  - Each prompt was tested against the same code samples (those with one of the four smells at minor, major, or critical severity).
+  - Answers were parsed and mapped to performance metrics: precision, recall, F-measure.
+  - Discrepancies or malformed outputs were manually double-checked.
+  - Statistical comparison (McNemar's test) quantified the improvement due to prompting strategy.
+
+- **Replication**: All data and scripts are publicly available for reproducibility.
+
+---
+
+### Summary Table: Answers to Questions
+
+| Question | Short Answer |
+| --- | --- |
+| **1. Point/uniqueness** | Testing ChatGPT’s (LLM) ability to detect Java code smells, comparing generic vs specific prompting; unique as first LLM-based code smell detection study. |
+| **2. Dataset** | Industry-relevant MLCQ Java code smell dataset (Blob, Data Class, Feature Envy, Long Method) with severity labels; 3,291 filtered instances. |
+| **3. LLM Model** | ChatGPT 3.5-turbo. |
+| **4. Prompting Strategies** | 1) Generic prompt (open request), 2) Specific prompt (lists the four target smells). |
+| **5. Specific Prompts** | Provided verbatim in Section 2.2, Figs 1 & 2 (see detailed quotes above). |
+| **6. Where Explained** | Section 2.2, Figures 1 and 2, Section 3. |
+| **7. Results/Success** | Specific (Prompt #2) much better than generic, especially for Data Class and more severe smells; overall statistically significant improvement. |
+| **8. Why one better** | Specific prompts reduce ambiguity, focus the LLM, leverage pattern recognition; generic prompts spread model attention, lower performance. |
+| **9. Details of prompts** | Strict format for answer parsing, iterative design/refinement, both applied to each code instance, results measured quantitatively and statistically. |
+
+If you need a more condensed summary or a slide-ready table, let me know!

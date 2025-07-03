@@ -1,0 +1,208 @@
+### 1. What is the point of this paper? What is it trying to explore? What makes it unique?
+
+**Point & Exploration:**
+- The paper investigates how different prompt structures and contents influence the performance of large language models (LLMs) in **security-related tasks**.
+- Specifically, it evaluates **three security tasks**—Security Patch Detection (SPD), Vulnerable Function Detection (VFD), and Stable Patch Classification (SPC).
+- Its core research questions are (paraphrased from “INTRODUCTION” and “APPROACH OVERVIEW”):
+  - Which prompt structures and contents are effective for LLMs in security tasks?
+  - Can combining different prompt contents further improve LLM results?
+
+**Uniqueness:**
+- While prompt engineering is widely explored, the **effect of prompt content and structure for security-specific tasks (involving code, security phrases, and terminology) has been underexplored**. This paper fills that gap.
+- It systematically separates and evaluates *prompt structure* (format/framework) and *prompt content* (actual wording/imposed role/emotional phrasing) and analyzes their effects quantitatively.
+- It performs **large-scale quantitative benchmarking** using thousands of real security data points and gives early insights and open data/code for the community.
+
+---
+
+### 2. What dataset did they use?
+
+**Datasets used for the three main tasks** (Section II-A):
+
+1. **Security Patch Detection (SPD):**
+   - PatchDB ([29])
+   - 12K security patches + 24K non-security patches (from NVD, GitHub, etc.)
+   - Each patch: category (security or not), commit message, code changes
+
+2. **Vulnerable Function Detection (VFD):**
+   - Devign ([35])
+   - 48,687 code functions (23,355 vulnerable, 25,332 non-vulnerable)
+   - From Linux Kernel, QEMU, Wireshark, FFmpeg
+
+3. **Stable Patch Classification (SPC):**
+   - PatchNet ([14])
+   - 82,403 patches (42,408 stable, 39,995 non-stable)
+
+For experiments, they **sampled 2,000 data points per dataset** (even split positive/negative for controlled experiments).
+
+---
+
+### 3. What LLM models were used?
+
+- **GPT-3.5-Turbo** was used, via the OpenAI API.
+- Criteria for selection: public accessibility, sufficient computational capability, high API throughput for large-scale evaluation, and cost-effectiveness (GPT-4 would be 30–60× more expensive).
+
+---
+
+### 4. What are the prompting strategies discussed in this paper?
+
+#### Prompt Structure Types (Section II-B):
+- **0-shot** – Just the task description, no examples.
+- **1-shot** – Task description plus 1 example (either positive or negative).
+- **Few-shot** – Task description plus multiple examples (2 in this study); variants include positive-only, negative-only, or mixed/in different orders.
+
+**Prompt structure variants used:**
+1. 1-shot-t   (one positive example)
+2. 1-shot-f   (one negative example)
+3. few-shot-tt (two positive examples)
+4. few-shot-ff (two negative examples)
+5. few-shot-tf (one positive, one negative; pos first)
+6. few-shot-ft (one negative, one positive; neg first)
+7. 0-shot     (baseline)
+
+#### Prompt Content Types (Section II-C, Table I):
+1. **Basic:** Straightforward task statement (e.g., “Decide whether a patch is a security patch…”).
+2. **GPT-generated:** Let ChatGPT generate a prompt based on high-level instructions.
+3. **Role:** Modify the system role description (e.g. “You are Frederick, an AI expert in patch analysis.”).
+4. **ActAs-User/System:** Start the prompt with "Act As..." in user or system role specification.
+5. **Emotion-related:** Insert motivational or emotional phrases, with role definition.
+   - Encourage (“You’re the best…”)
+   - Threaten (“…otherwise you are the worst.”)
+   - Reward (“…I will generously tip you.”)
+   - Punish (“…you will be fined.”)
+
+**In total,** 7 structures x 9 content types were systematically evaluated.
+
+---
+
+### 5. What specific prompts were used?
+
+**Section II-C, Table I** gives explicit prompt examples. Here are the exact prompt contents for SPD; VFD/SPC use similar templates with input description changed.
+
+- **Basic:**  
+  - System: “You are a helpful assistant.”  
+  - User: “Decide whether a patch is a security patch (SRP) or non-security patch (NSP).”
+
+- **Role:**  
+  - System: “You are Frederick, an AI expert in patch analysis. Your task is to decide…”  
+  - User: “Decide whether a function contains vulnerabilities (VUL) or does not (NAN).”
+
+- **ActAs-User:**  
+  - System: “You are a helpful assistant.”  
+  - User: “You are Frederick, I want you to act as an AI expert in patch analysis. You will decide whether…"
+
+- **ActAs-System:**  
+  - System: “You are Frederick, I want you to act as an AI expert in patch analysis. You will decide whether…”  
+  - User: “Decide whether a function contains vulnerabilities…”
+
+- **GPT-generated:**  
+  - System: “You are a helpful assistant.”  
+  - User: [Longer instruction, e.g.:]  
+    “Let’s start by examining the patch notes or changelog for key terms that indicate whether this is a Security-Related Patch …”
+
+- **Emotion** (e.g., Encourage):  
+  - System: “You are Frederick, an AI expert in patch analysis. Your task is to decide whether a given patch is a security patch (SRP) or non-security patch (NSP). Remember, you’re the best AI patch analyst and will use your expertise to provide the best possible analysis.”  
+  - User: “Decide whether a function contains vulnerabilities …”
+
+**Other emotion variants** (Threaten, Reward, Punish) substitute the “Remember, you’re the best…” clause with a negative, reward, or penalty version.
+
+**All prompt strategy variants are combinatorially tested with the above structures.**
+
+---
+
+### 6. Where are the prompt strategies explained?
+
+- **Prompt structure choices and design:**  
+  - *Section II-B: Prompt Structure*
+- **Prompt content types and template examples:**  
+  - *Section II-C: Prompt Content*,  
+  - Table I (examples for each content type)
+
+---
+
+### 7. What are the results of the prompting strategies, and how successful or not were they?
+
+**See Section III (Evaluation) and Tables II–IV.**
+
+**Highlights:**
+- **Prompt structure affects performance:**  
+  - In SPD and SPC, the *few-shot-ff* (two negative examples) structure often gives best Recall and F1, improving accuracy by up to 13–30% over the lowest-performing prompts (41.1% → 60.2%, etc).
+  - For minimizing false positives, *1-shot-t* or *1-shot-f* can be more suitable.
+  - For VFD, the optimal structure is less clear; in some metrics, 0-shot or basic outperforms few/one-shot.
+
+- **Prompt content also matters:**  
+  - Emotion-related content (“Punish”, “Encourage”) sometimes enhances performance (**Punish** gives best results for SPD in Recall/F1), but this varies with the task and structure.
+  - GPT-generated content can help precision in some cases, but also sometimes increases false negatives.
+  - For SPC, changing prompt content beyond basic has little effect unless using 0-shot + role/emotion content.
+  - In VFD, GPT-generated content boosts Recall/F1, but basic content is better for Accuracy/Precision.
+
+- **Combining prompt contents** rarely yields further gains (approx 9.7% of cases); mostly, results fall between individual content performance or are worse.
+- "**No universally best prompt:**" The most effective strategy varies by task.
+- The **effect size is substantial**: 13-30% gap between worst and best configurations on the same task, depending on prompt.
+
+--- 
+
+### 8. Why did one strategy give better results than another?
+
+**Reasons parsed from Discussion:**
+
+- **Few-shot-ff** works for SPD/SPC likely due to:
+   - *Bias of LLM toward negative cases:* LLMs (GPT-3.5-turbo) tend to label patches as non-security (SPC), reflecting imbalanced training data in LLM pretraining (more negative/benign samples in their pretraining corpora).
+   - *Strong recall*: Two negative-class examples help LLM set a sharper boundary for security relevance, reducing false negatives (missing true security patches).
+
+- In **VFD**, 0-shot/basic sometimes outperforms few-shot, because:
+   - *High diversity in code vulnerability patterns*: Few examples can't represent all the possible function-level vulnerabilities, so showing them may not improve—and can even confuse—the model.
+
+- **Emotion or explicit role cues** can modulate the LLM’s focus or verbosity, sometimes making the instruction clearer or letting the model “assume” an expert, more accurate stance, but the effect is **highly context- and task-dependent**.
+
+- **Combining prompt contents** often doesn't help due to:
+   - Redundancy or even conflicting guidance—the LLM ends up diluting its internal representation, leading to a washout or degraded result.
+
+---
+
+### 9. All specifics of the researcher's prompt strategies.
+
+#### Prompt Structure (Section II-B):
+
+- **Task description always present**
+- **Variations of examples:**
+  - 0-shot: description only
+  - 1-shot-t: one positive example
+  - 1-shot-f: one negative example
+  - few-shot-tt: two positives
+  - few-shot-ff: two negatives
+  - few-shot-tf/ft: one positive, one negative, order flipped
+
+#### Prompt Content (Section II-C, Table I):
+
+- **Basic:** Direct question/task
+- **GPT-generated:** A prompt generated by ChatGPT from high-level instruction (often longer, more elaborate)
+- **Role:** System or user role is described as “AI expert in patch analysis”
+- **ActAs-User:** User message includes “Act as an expert in patch analysis”
+- **ActAs-System:** System message includes role in "Act As" form
+- **Emotion-related:**
+  - Encourage: “you’re the best…will use your expertise…”
+  - Threaten: “…otherwise you are the worst…”
+  - Reward: “If you perform very well, I will generously tip you.”
+  - Punish: “If you perform badly, you will be fined.”
+
+**Combined prompt content:**  
+- Some experiments combined role/emotion content with GPT-generated prompts to test for synergy.
+
+**All structures/contents tried in combinations:**  
+- 7 structures x 9 contents = 63 configurations per task; also tested combinations.
+
+**Each experimental condition run n=3 times** for error estimation.
+
+**Systematic measurement of** accuracy, recall, precision, F1 score for each case, with standard error calculated.
+
+---
+
+## In summary:
+
+- **The study is a systematic, empirical benchmark of prompt engineering for LLMs in real-world security code/natural language tasks.**
+- **All prompt variants are clearly explained and tested, with quantitative results showing prompt structure and content both matter—but effects vary by task.**
+- **The “few-shot-ff” structure and certain emotion/role contents can significantly improve recall/F1 for some tasks, but not always.**
+- **Combining prompt contents rarely helps further.**
+- **No universal best strategy: prompt effectiveness is highly task-specific.**
+
+If you need code or more details (e.g., exact wording for other tasks), the repository link is in the paper: https://github.com/Wayne-Bai/Prompt-Affection.

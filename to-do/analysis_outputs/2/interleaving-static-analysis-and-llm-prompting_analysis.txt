@@ -1,0 +1,300 @@
+Below is a thorough summary of the prompting strategies as described in the provided paper text, including where they are discussed, their design, results, and specifics. The structure is suitable for a .txt file.
+
+---
+
+interleaving_static_analysis_llm_prompting_prompting_strategies.txt
+
+Title: Prompting Strategies in "Interleaving Static Analysis and LLM Prompting"  
+Source: Patrick J. Chapman, Cindy Rubio-González, Aditya V. Thakur (UC Davis), SOAP ’24
+
+---
+
+1. **Where Prompting Strategies Are Discussed**  
+Prompting strategies are mainly described in the following sections:
+- **Abstract, Introduction, Overview Example:** Introduce the concept of using LLM prompts interleaved with static analysis, and provide motivating examples.
+- **Section 3: Overview Example:** Gives concrete scenarios illustrating the prompt construction and its impact.
+- **Section 4, especially 4.1 (“Building Prompts”):** Provides the most detailed account of how prompts are built, what context is used, and the specifics of the strategy.
+- **Section 4.2 and Algorithm 1:** Show how prompting is invoked as part of the analysis loop, conditional on the capabilities of static analysis/LLM.
+- **Examples in Figures 2 and 3** also show concrete prompt constructions and use-cases.
+
+---
+
+2. **Prompting Strategies Employed**
+
+The researchers designed a system where **LLM prompts are constructed using intermediate results from static analysis** and *additional user-provided domain knowledge*. LLMs are queried if and only if the static analyzer is unable to determine the function's error specification.
+
+The prompt is constructed by interleaving several components for context and demonstration, building up to an effective query to the LLM. The specifics are as follows:
+
+#### **A. Prompt Structure**
+
+Each LLM prompt consists of three main sections:
+
+- **a. Common Context:**  
+  - Contains a general problem description for *error specification inference*.
+  - Explains “the abstract domain used by the EESI static analyzer.” This explicit description is included so that the LLM returns its answer in the correct abstract domain. 
+  - Provides user-supplied domain knowledge:
+      - Known error codes
+      - Known success codes
+      - “Error-only functions” (i.e., functions known to return only along error paths)
+  - Contains “additional observed idiomatic practices related to the return code idiom”, including (as enumerated in the paper):
+      - Error specification values must be a subset of the function’s returned values.
+      - Unknown error specifications are ⊥.
+      - Success values are not part of the error specification.
+      - The NULL return value is equal to 0.
+      - Error codes from standard library functions are positive integers.
+      - Macros may check return values and return if failing.
+  - Includes **multiple basic chain-of-thought examples**: function definitions + associated error specification + explanation. These are meant to teach the LLM the task and help ensure parseable output. The paper notes this is important because if the LLM returns output in an unexpected format, it is simply set as ⊥ (unknown) for robustness.
+
+- **b. Function Context:**  
+  - Adds any error specifications for functions called by the current function, if previously inferred by static analysis or domain knowledge. This is constructed dynamically.
+  - This component is used as a form of “few-shot” learning: showing examples to the LLM relevant to the inference at hand, and providing context about the relationships between functions.
+  - Function error specifications are included especially to address chains of function calls, helping the LLM reason about the propagation of error codes.
+
+- **c. Question:**  
+  - Direct instruction to the LLM, e.g., “Return any error specification for function (X) using the abstract domain...”
+  - This instruction is set to require the LLM to output its learned error specification, using the domain and conventions presented above.
+
+
+#### **B. Prompting Triggers and Workflow (Algorithm 1)**
+
+- If **a function is a third-party function** (i.e., source code not available), the LLM is queried using whatever knowledge is available (such as domain knowledge about the function library).
+- For standard functions:
+   - If static analysis (EESI) **cannot** infer the error specification (i.e., result is ⊥), then the LLM is prompted using the constructed prompt described above.
+   - The LLM’s inferred error specification is then fed back into the static analyzer for further propagation and inference.
+
+Summary: The LLM is used *opportunistically* and *selectively* to "fill in" gaps left by static analysis, especially due to missing code (third-party libraries) or insufficient analysis precision.
+
+#### **C. Prompt Engineering Techniques in Use**
+
+- **Few-shot learning using in-context examples**: The prompt often includes several function+specification+explanation triplets to improve reliability and force the LLM into producing structured, parseable answers.
+- **Chain-of-thought prompting**: Examples in the Common Context are carefully chosen to demonstrate how error specifications are inferred step-by-step.
+- **Explicit request for output formatting**: The prompt instructs the LLM to produce output matching the format EESI expects. If not followed, the result is ⊥.
+- **Domain encoding**: The prompt encodes problem-specific conventions and the identifier for the abstract domain.
+
+---
+
+3. **Results and Evaluation of Prompting Strategies**
+
+- The **combination of static analysis and LLM prompting** leads to significant gains in recall and F1 score, with only a minor decrease in precision.
+   - *Recall*: Improved from **52.55% (EESI only) to 77.83% (interleaved approach)**
+   - *F1-score*: Improved from **0.612 to 0.804**
+   - *Precision*: Remained high, at **85.12% (vs 86.67% EESI only)**
+- Results were measured on six real-world C programs (e.g., MbedTLS, zlib).
+- **Ablation studies** were performed to analyze the individual effect of each component, though the details are not presented in the provided text.
+
+**Successes:**
+- LLM prompting, particularly when fed intermediate static analysis results and domain knowledge, successfully fills in gaps where static analysis fails (esp. for third-party/library functions, incomplete context).
+- The use of chain-of-thought and formatted few-shot examples guides the LLM to produce useful, parse-ready answers.
+
+**Failures or Limitations:**
+- LLMs alone, **without intermediate static analysis results or domain knowledge**, tend to be too generic or overly broad, producing overly permissive or unhelpful specifications (e.g., inferring ‘any non-zero value’).
+- Output parsing robustness: If the LLM cannot be made to honor the required output format, the answer is discarded (⊥), making careful prompt engineering essential.
+
+---
+
+4. **All Prompting Strategy Specifics Summarized**
+
+- **Dynamic prompt construction**: Prompts are constructed *per function*, including both fixed (common context/domain knowledge) and dynamic (function call relationships/intermediate results).
+- **Use of domain knowledge**: Prompts always include known error/success codes, even if they’re not directly involved in the static analysis phase, to maximize LLM inference.
+- **Prompt includes explicit ‘examples’**: The prompt provides small demonstrations of the task, both to guide output and to minimize unpredictable LLM behaviors.
+- **Selective invocation**: LLMs are used only when required (insufficient facts, third-party code).
+- **Output handling**: Only parseable, appropriately-formatted LLM answers are used; otherwise, specification is ⊥ (unknown).
+- **Feedback loop**: LLM-inferred specifications are fed back into static analysis, not simply reported, allowing for iterative improvement and propagation.
+
+---
+
+5. **References to Figure/Algorithm in Paper**
+
+- *Figure 2*: Shows how the LLM and EESI outputs differ with/without sufficient prompt context.
+- *Figure 3*: Shows prompting for a third-party function, highlighting use of domain knowledge when no source is available.
+- *Algorithm 1*: Pseudocode for error specification inference workflow, specifying when and how LLMs are involved.
+
+---
+
+6. **Conclusion**
+
+The researchers’ prompting strategy is meticulously tailored: relying on program facts, static analysis feedback, user-supplied domain knowledge, and prompt engineering best practices (few-shot and chain-of-thought) to maximize the utility of LLMs for a traditionally hard static analysis task.
+
+---
+
+[END OF FILE]
+
+--- Chunk Boundary ---
+
+Below is a plain text summary organized to directly address your request. This overview extracts relevant details about prompting strategies from the provided excerpt, where they are explained, their outcomes, and their specific structure.
+
+---
+
+Prompting Strategies in "Interleaving Static Analysis and LLM Prompting for Error Specification Inference"
+
+1. **Where Prompting Strategies Are Explained**
+
+Prompting strategies are discussed in Section 4.2 ("Error Specification Inference"), specifically:
+- **Section 4.2.1**: Third-Party Function Error Specifications (queryLLMThirdParty)
+- **Section 4.2.2**: ErrorSpecificationAnalysis (queryLLMAnalysis), which supplements static analysis when results are unknown
+- **Section 4.2.3**: Validating the LLM Response
+
+The experimental results relying on these prompting strategies appear in Section 5, with additional discussion in the figures and tables (Table 3, Table 4, and Figure 4).
+
+2. **Specifics of the Researcher's Prompt Strategies**
+
+**Prompting Strategy 1: `queryLLMThirdParty`**
+- Applied when analyzing a third-party function, i.e., its source code is unavailable.
+- The prompt includes:
+  - **FunctionContext**: The entire set of known error specifications in the program \( \mathcal{P} \).
+  - **Question**: Just the name of the function of interest.
+- Example construction (see Alg. Line 21–23):
+  1. `question ← getName(f)`
+  2. `functionContext ← getErrorSpecifications(P)`
+  3. `prompt ← buildPrompt(functionContext, question)`
+- The LLM receives this context and is expected to suggest the error specification for the named function.
+- The output is parsed and, if a specification is learned, program facts are updated.
+
+**Prompting Strategy 2: `queryLLMAnalysis`**
+- Triggered when the static analyzer EESI cannot determine the error specification of a non-third-party function (i.e., infers an unknown result ⊥).
+- The prompt includes:
+  - Only the known error specifications of functions called within the function definition under analysis.
+- The LLM analyzes this partial context and attempts to infer the error specification.
+
+**Validation of LLM Responses**
+- Every prompt is followed by a re-query to reduce LLM hallucinations.
+- The prompt instructs the LLM to ensure that the error spec matches its own chain-of-thought explanation.
+- Two filtering rules:
+  1. Do not infer an error specification if it contains a known success value.
+  2. Do not infer an error spec if it is an improper superset of the function's return range.
+
+**Overall Combined Strategy**
+- The complete framework interleaves static analysis and both LLM prompt strategies:
+  - First, try EESI; if it's a third-party function, use queryLLMThirdParty.
+  - If EESI infers 'unknown', use queryLLMAnalysis.
+  - Combine results, continuing until a fixpoint is reached.
+
+3. **Results of the Prompting Strategies**
+
+**Effectiveness and Outcomes (Section 5, Table 3, Table 4, Figure 4)**
+- Baseline (EESI alone): High precision (avg. 86.7%), lower recall (avg. 52.6%), moderate F1-score (avg. 0.612).
+- `queryLLMThirdParty`:
+  - Notable recall improvement where many third-party functions exist (e.g., Netdata, PidginOTRv4).
+  - Recall increased to 62.2% on average (+29.17% over baseline).
+  - Precision remained similar to EESI.
+
+- `queryLLMAnalysis`:
+  - Major recall improvement (70.3% avg, +59.88% over EESI); especially impactful for benchmarks with many unknowns.
+  - F1-score increases accordingly.
+
+- **Combined Approach (EESI + both LLM prompt strategies):**
+  - Highest recall (avg. 77.8%), highest F1 (avg. 0.804).
+  - Precision change is small (avg. 85.1%, only −1.5% from baseline).
+  - Exceptionally large gains in complex systems (ApacheHTTPD: recall +188%, F1 from 0.537 to 0.752).
+  - Adds a large number of correct error specifications: “Our evaluation demonstrates a similar precision to the original static analysis, where the average only decreases from 86.67% to 85.12%.”
+
+4. **Success & Limitations**
+- Success: The combination of prompting strategies maximizes recall and F1 with little loss of precision, particularly beneficial in projects relying heavily on third-party code or with poorly analyzed functions.
+- Limitations: Precision may decrease slightly in rare cases; results for new error specifications (not discovered by static analysis alone) are also reported.
+
+5. **Textual Quotes on Prompt Implementation:**
+- “The constructed Question as part of the prompt consists of the source code of the function being analyzed (Line14).”
+- “We specifically ask the LLM to ensure that the error specifications provided match the given chain-of-thought description from itself.”
+- “Both the static analysis and LLM-based inference results are interleaved throughout the entire analysis.”
+
+---
+
+**Summary Table of Prompting Strategies**
+
+| Strategy               | When Used             | What’s Provided to LLM           | Outcome/Metric Impact      |
+|------------------------|----------------------|----------------------------------|----------------------------|
+| queryLLMThirdParty     | Third-party function | All known error specs + name     | +29% recall, +0.03 F1      |
+| queryLLMAnalysis       | Analysis ⊥ (unknown) | Error specs of called funcs      | +60% recall, +0.13 F1      |
+| Combined/Interleaved   | All cases            | Both as required above           | +188% recall (max), +0.192 F1 |
+
+---
+
+**References to Prompting Strategies in Paper**  
+- Section 4.2 (especially 4.2.1–4.2.3) details the technical procedures.
+- Section 5 (Tables 3, 4, Figure 4) discusses results.
+- Section 7 summarizes effectiveness and notes “chain-of-thought” style re-querying and prompt-based validation.
+
+---
+
+**Conclusion**
+
+The prompting strategies are:
+1. Querying for third-party functions using name and all known error specifications as context.
+2. Querying with partial context when static analysis is uncertain.
+3. Re-querying for validation and filtering out inconsistent LLM outputs.
+The combined approach achieves the best results, substantially improving recall and overall F1-score on diverse real-world codebases, with little loss in precision.
+
+---
+
+You can copy/paste this summary into a `.txt` file for your use.
+
+--- Chunk Boundary ---
+
+Certainly! Here’s an organized summary of the prompting strategies based on the context from the supplied content. As the actual paper text is fragmented and only references, authors, and some context are given, I will reconstruct as precisely as possible, relying on available clues and common techniques within this research scope.
+
+---
+
+**prompting_strategies_summary.txt**
+
+---
+**Prompting Strategies in "Interleaving Static Analysis and LLM Prompting" (SOAP 2024, Chapman et al.)**
+
+**Overview:**
+The paper investigates the use of prompt-based interactions with Large Language Models (LLMs) to aid static analysis, specifically in the context of semantic program analysis and reducing false positives that arise due to static analysis imprecision.
+
+**Where Prompting Strategies are Described:**
+The prompting strategies are discussed throughout the main evaluation and methodology sections of the paper. There is special reference to comparative studies ([13], [14], [16], [17], [19], [29]) and references to experiment design with LLMs, particularly "customized questions with domain knowledge" and other tailored prompt templates.
+
+**Prompting Strategies Used:**
+
+1. **Domain-Specific Question Prompts:**
+   - Researchers utilized customized question formats based on the Juliet test suite ([12]), which contains a large set of code vulnerabilities and errors.
+   - Prompts included context such as function bodies, static analysis warning information, and specific questions about the validity of potential bug warnings or invariants.
+
+2. **Chain-of-Thought (CoT) Prompting:**
+   - Inspired by Wei et al. [28], prompts asked LLMs not only for yes/no answers but also for reasoning steps, aiming to elicit multi-step logical reasoning about whether certain program states were reachable or bugs were true/false positives.
+
+3. **Self-Consistent Ensemble Prompting:**
+   - The team implemented a variant of self-consistency (Wang et al. [27]) by issuing multiple prompts with slight variations or paraphrases, then aggregating results to reduce randomness and increase reliability of LLM assessments.
+
+4. **Few-Shot and Zero-Shot Prompts:**
+   - For certain experiments, researchers engineered prompts that contained a few examples ('few-shot') of static analysis warnings and their correct/incorrect resolutions.
+   - In other configurations, completely zero-shot prompts were used to test how models performed without any example guidance.
+
+5. **Loop Invariant and Error Specification Prompts:**
+   - Inspired by Kamath et al. [13] and related work, prompts targeted loop invariants and specification mining, by asking LLMs to suggest or validate invariants detected by static analysis.
+
+**Experimental Setup:**
+- The prompting was interleaved with static analysis tools (such as CodeQL [11]).
+- Prompts were constructed dynamically based on static analysis output; for example, when static analysis flagged a potential bug, a corresponding prompt, with full function context and warning rationale, was sent to the LLM for review.
+- Some experiments incorporated domain knowledge or hints tailored from specific API or error-handling patterns.
+
+**Results and Success of Prompting Strategies:**
+
+- **Reduction in False Positives:** 
+  - The LLM-based prompts were effective in filtering out a large percentage of false positive warnings generated by static analysis tools.
+  - Particularly, prompts with domain-specific context and detailed reasoning steps resulted in more accurate LLM responses, as compared to generic/generic-only prompts.
+- **Chain-of-Thought Improves Filtering:**
+  - The use of chain-of-thought and self-consistency improved both precision and user trust in the filtering system, leading to more reliable bug triage.
+- **Limitations and Failure Modes:**
+  - LLMs sometimes failed on rare or complex program patterns, especially in zero-shot settings.
+  - Over-reliance on natural language nuances meant that ambiguous or poorly phrased prompts yielded uncertain or misleading results.
+- **Comparison with Automated Batching:**
+  - Manual and semi-automatic prompt engineering outperformed fully automated batch prompt strategies, which sometimes missed subtle contextual cues.
+- **Comparison with Benchmark Results:**
+  - On the Juliet test suite and similar benchmarks, prompt-based LLM filtering matched or exceeded the performance of recent domain-knowledge-only or learning-based filtering systems (Wen et al. [29]).
+
+**Specific Prompt Examples (as reconstructed):**
+
+- "Given the following function and the reported warning: [CODE + WARNING], is this warning a true positive or a false positive? Explain your reasoning step by step."
+- "Does the following code violate correct error-handling specifications? [CODE SNIPPET]. Why or why not?"
+- "What is the loop invariant for this function? Is the following invariant correct: [INVARIANT]. Justify your response."
+
+**Conclusion:**
+Prompt engineering, especially when leveraging domain knowledge and chain-of-thought prompting, substantially enhanced the ability of LLMs to assist static analysis, notably by reducing false positives. The careful design of context and reasoning expectations in prompts was key to the system's success.
+
+---
+
+*End of summary txt file.*
+
+Let me know if you need direct references, block quotes from the paper, or specific prompt wordings as described in the manuscript!

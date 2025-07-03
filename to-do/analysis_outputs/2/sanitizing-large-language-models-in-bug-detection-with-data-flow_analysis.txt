@@ -1,0 +1,417 @@
+Certainly! Below is a comprehensive summary addressing your request, written in plain text format and focusing on the prompting strategies discussed in the paper “Sanitizing Large Language Models in Bug Detection with Data-Flow”. You can copy this into a `.txt` file.
+
+---
+
+Sanitizing Large Language Models in Bug Detection with Data-Flow  
+Prompting Strategies: Explanation, Implementation, Results
+
+================================================
+
+1. **Where Prompting Strategies are Explained**
+------------------------------------------------
+
+The paper discusses prompting strategies primarily in the following sections:
+
+- **Introduction** (Sections 1, page 1-2): Introduces few-shot chain-of-thought (CoT) prompting and the concept of LLMs generating bug reports with data-flow explanations.
+- **Section 3: Data-Flow Paths as Bug Proofs** (page 4): Details on utilizing prompting for customized bug detection and formulating bug detection as the task of emitting data-flow paths as proofs.
+- **Section 4: LLM Sanitization for Bug Detection** (page 5): Explains prompt templates for both generating bug reports/data-flow paths and for subsequent sanitization.
+- **Figure 4** (page 3): Shows a concrete example of a few-shot CoT prompt for bug explanation and data-flow path emission.
+- **Figure 5** (page 5): Provides the actual template for a sanitizing prompt for value/functionality checks.
+
+================================================
+
+2. **Prompting Strategies – All Specifics**
+------------------------------------------------
+
+**A. Few-Shot Chain-of-Thought Prompting for Bug Detection**
+
+- **Purpose:** Guide LLMs to not only detect potential bugs but to emit explicit data-flow paths as "proofs" for the detection, thus increasing rigor and auditability.
+- **Key Idea:** Supply multiple example code snippets (few-shots), each annotated with:
+    - The buggy program
+    - An explanation describing the bug in natural language
+    - The specific data-flow path that propagates the faulty value leading to the bug
+- **Prompt Construction:**
+    - Examples are shown to the LLM first (Figure 4), illustrating:
+        - How a zero-value is produced (e.g., by a literal or function call)
+        - How that value reaches a risky operation (e.g., as a divisor)
+    - The "task" part asks the LLM to analyze a given new program and return the data-flow path(s) for suspected bugs using the same stepwise reasoning as the examples.
+    - Emphasizes **"step-by-step" thinking**, leveraging chain-of-thought benefits previously noted in NLP tasks.
+
+**B. Prompting for Sanitization (Validation)**
+- **Purpose:** After LLM emits data-flow paths, further prompts are used to check the validity of the path's properties — especially to mitigate LLM hallucinations (false positives).
+- **Types of Sanitizer Prompts:**
+    - **Type Sanitizer** (syntactic check via parsing — not via LLM; thus, not prompting per se).
+    - **Functionality Sanitizer** (semantic, uses LLM prompting):  
+        - **Prompt Template** (see Figure 5):  
+            - States several positive and negative examples for task setup.
+            - Task is to check if a *specific value at a specific line* can acquire a property (e.g., can be zero).
+            - Asks LLM to "think step by step and conclude the answer with Yes or No".
+            - Forces LLM to articulate reasoning, further exposing and reducing errors and hallucinations.
+    - **Order Sanitizer** (syntactic control-flow check — not LLM).
+    - **Reachability Sanitizer** (semantic, uses LLM):  
+        - Similar stepwise check as functionality, asking if one value at a line can reach another value at another line, considering program paths.
+
+**C. Design Principles**
+- All prompting is few-shot, using carefully chosen illustrative examples.
+- Each semantic/syntactic property of a bug-proof path is separately validated; for semantic ones, “think step by step” is always enforced in the prompt.
+- No prompts send the entire program for analysis; rather, small, focused code snippets are used for specific questions (localization).
+
+================================================
+
+3. **Results of Prompting Strategies**
+------------------------------------------------
+
+- **Baseline (Few-Shot CoT Prompting without Sanitization):**
+    - Precision of only 69.04% on benchmark tasks (e.g., many hallucinated bug reports)
+    - Very high recall (not quantified in this example, but implying many true bugs are retained, at the cost of many false positives)
+    - Example: gpt-3.5-turbo-0125 yields 184 false positives out of 239 reports for null pointer dereference
+
+- **LLMSAN (With Post-Prompt Sanitization):**
+    - **Precision:** 91.03% on benchmark tasks (a boost of 21.99%)
+    - **Recall:** 74.00% (some reduction, but largely preserved)
+    - On real-world Android malware, precision and recall surpass an industrial analyzer by 15.36% and 3.61%, respectively
+
+- **Effectiveness of Prompt Designs:**
+    - Forcing the model to emit data-flow paths via CoT reduces under-specified reasoning and improves faithfulness
+    - Sanitizer prompts, especially step-by-step ones for specific values/lines, enable catching hallucinations that would otherwise pass
+    - The cross-checking effect, where multiple prompts verify independent but correlated properties, further improves trustworthiness
+
+================================================
+
+4. **Success and Limitations**
+------------------------------------------------
+
+- **Success:**
+    - Prompting strategies, especially few-shot CoT plus sanitizing prompts enforcing stepwise logic, are substantially effective at reducing LLM hallucinations in bug detection.
+    - The explicit, structured prompt design achieves both rigorous bug proofs and mitigates the key weaknesses (false positives) of vanilla CoT prompting.
+
+- **Limitations:**
+    - Some recall is sacrificed (from 77.47% to 74.00% in synthetic benchmarks), meaning some real bugs are filtered out by over-strict sanitization.
+    - The approach works best for bugs that can be characterized with explicit data-flow paths and stepwise properties; less suitable for implicit or highly contextual bugs.
+    - Prompt tuning is required to adapt to new bug types; not completely automatic.
+
+================================================
+
+5. **Summary Table of Prompt Strategies**
+
+| Prompt Type            | Phase                | LLM-based | Example Template            | Key Purpose                      |
+|------------------------|----------------------|-----------|----------------------------|-----------------------------------|
+| Few-shot CoT           | Bug _generation_     | Yes       | Code + Exp + Data-flow     | Enforce stepwise, structured bug  |
+|                        |                      |           | path, repeat for N exs     | reasoning, elicit data flow proof |
+| Functionality Sanitizer| Path _validation_    | Yes       | Exs + "is X at line Y zero"| Validate end/start value property |
+| Reachability Sanitizer | Path _validation_    | Yes       | Exs + "can X flow to Y"    | Validate edge property on path    |
+| Type & Order Sanitizer | Path _validation_    | No        | -                          | Syntactic/path parsing, not LLM   |
+
+================================================
+
+6. **References in the Paper for Prompting**
+------------------------------------------------
+
+- Figure 4: Example prompt for extracting data-flow paths (few-shot CoT).
+- Figure 5: Example prompt for functionality sanitizer (value property check).
+
+================================================
+
+7. **Conclusion**
+---------------------
+
+The prompting strategies in this work combine (1) few-shot, CoT-based bug detection prompts (emphasizing data-flow paths as proofs) with (2) step-by-step validating prompts targeted at suspect data-flow facts. This integrated prompting pipeline effectively mitigates LLM hallucinations and improves the precision of LLM-powered bug detection.
+
+---
+
+END OF FILE
+
+--- Chunk Boundary ---
+
+Below is a plain text summary (.txt format) that explains the prompting strategies discussed in the provided paper, detailing their locations, specifics of prompt design, and experimental results. You can copy or save this text to a .txt file.
+
+---
+
+PROMPTING STRATEGIES IN LLM-BASED BUG DETECTION: A SUMMARY
+
+I. OVERVIEW
+
+This paper proposes LLMSAN, a framework for bug detection in Java programs leveraging LLMs (Large Language Models). A core contribution is the design of several distinct prompting strategies aimed at improving the reliability and precision of LLMs in validating data-flow paths related to bugs. The prompt designs target both syntactic and semantic program properties and attempt to minimize hallucination by partitioning analysis into smaller, manageable subtasks, each handled via a specialized prompt.
+
+II. SANITIZATION-DRIVEN PROMPTING STRATEGIES
+
+The framework uses two main kinds of sanitizations, each with prompting components:
+
+A. Data Sanitization (Section 4.1)
+- Separates syntactic from semantic verification for start/end values of candidate data-flow paths.
+- Comprises two main sanitizers:
+  1. **Type Sanitizer**: Uses parsing to check type consistency. No prompting.
+  2. **Functionality Sanitizer**: Uses LLM prompting to check if the start (and end) value exhibits the intended functionality, e.g., could it be zero in "divide by zero" (DBZ) bugs.
+
+- **Prompt Design for Functionality Sanitizer**:
+  - Structure: The prompt gives few-shot bug examples, asks the LLM to analyze whether a specific value at a location can introduce a property (e.g., zero value propagation), and requests a Yes/No response with step-by-step reasoning.
+  - Example given (Section 4.1 & Figure 5/6):  
+    ```
+    There are examples containing DBZ bugs:[examples].
+    Please understand how program values are propagated.
+    Task: Analyze [function1], [function2]. Please check whether [value1] at line [linenumber1] can be propagated to [value2] at line [linenumber2]. Please think step by step and conclude the answer with Yes or No.
+    ```
+  - The LLM is prompted only with concise code (function/block) relevant to the value-location being checked, keeping context short and focused.
+
+B. Flow Sanitization (Section 4.2)
+- Validates semantic correctness of intermediate data-flow facts (i.e., the propagation steps between start and end).
+- Uses another two sanitizers:
+  1. **Order Sanitizer**: Checks control-flow correctness using parsing.
+  2. **Reachability Sanitizer**: Uses LLM prompting to ask if a value can realistically propagate from one variable/location pair to another, considering program semantics and possible runtime conditions.
+
+- **Prompt Design for Reachability Sanitizer** (Section 4.2, Figure 6):
+  - Iteratively checks each adjacent value-location pair in the data-flow path (for k-1 pairs).
+  - The prompt contains the code for the involved functions and asks if the propagation between two particular points is plausible, again requesting step-by-step reasoning and a conclusive Yes/No.
+
+- **Sampling and LLM Behavior**:
+  - For both semantic sanitizers, greedy decoding is enforced by setting temperature=0 (Section 5, Settings) to reduce randomness and hallucination.
+  - When a path is to be checked, the system does not prompt with the entire program but with the relevant small code portions only. This aims to improve accuracy and efficiency and to minimize hallucinations that could arise with long prompts.
+
+III. BASELINES AND COMPARATIVE PROMPTING STRATEGIES
+
+Several alternative prompting-based methods are evaluated for comparison (Section 5.3, Table 4):
+
+1. **Ask-Check**: Prompts the LLM directly with the full data-flow path for validation, requesting a Yes/No answer.
+   - Simpler prompts, less reasoning enforced.
+2. **CoT-Check (Chain-of-Thought Check)**: Prompts the LLM to reason step by step using CoT-style prompts for path validation (Kojima et al., 2022).
+   - Designed to increase reasoning depth and certainty.
+3. **SC-CoT-Check (Self-Consistency CoT-Check)**: Adds multiple samples (n=5) and aggregates results to improve certainty and minimize hallucination (Wang et al., 2022).
+
+IV. EXPERIMENTAL RESULTS & EVALUATION
+
+- **Effectiveness of Proposed Prompts (LLMSAN; Table 3)**
+  - Average Precision: 91.03%
+  - Average Recall: 74.00%
+  - High rates of spurious data-flow path pruning—on average, 78.24% of spurious paths correctly removed with negligible loss of valid paths.
+
+- **Comparison to Baseline Prompting Strategies (Table 4)**
+  - Baseline methods (Ask-Check, CoT-Check, SC-CoT-Check) sacrifice more valid paths (higher false negatives) and are inconsistent in spotting spurious ones across bug types.
+  - For example, Ask-Check misidentifies up to 59.21% of valid data-flow paths for DBZ as spurious and generally prunes far fewer spurious paths compared to LLMSAN’s focused (modular, localized) prompts.
+  - LLMSAN’s localized prompt strategy avoids most losses in recall; only two valid NPD paths are mis-pruned across all tested cases.
+
+- **Prompt Specifics for Success**
+  - Prompts target minimal necessary context by focusing on individual propagation steps or isolated value-function pairs.
+  - Prompts demand explicit reasoning ("think step by step"), improving interpretability and control.
+  - Few-shot examples are included to guide LLM interpretation for specific bug patterns.
+  - Temperature=0 ensures deterministic, repeatable LLM outputs.
+
+V. ADDITIONAL OBSERVATIONS
+
+- LLMSAN’s approach of splitting program property checks (type/order vs. semantic/functional) and limiting the code shown per prompt ensures concise, relevant, and "compilation-free" queries.
+- This modularization avoids the context explosion and token cost of monolithic prompts; overall token usage is only 92% higher than the most efficient baseline, while precision is much greater.
+
+VI. CONCLUSION
+
+- The success of LLMSAN is attributed to:
+  - Modular prompt design (program-property decomposition)
+  - Focused, context-minimal prompts for semantic checks
+  - Systematic enforcement of step-wise reasoning
+  - Deterministic sampling settings
+- Baseline prompting strategies that treat the full path or program at once are far less reliable due to either under- or over-pruning, inconsistency, and greater hallucination.
+
+VII. REFERENCES IN TEXT
+
+- Prompt templates and designs: Sections 4.1 and 4.2, Figures 5 and 6.
+- Quantitative results: Section 5, Tables 3–5.
+- Discussion of prompt impact: Section 5.3.
+
+---
+
+--- Chunk Boundary ---
+
+Below is a comprehensive explanation based on the provided text, detailing the prompting strategies, their experimental context, results, and all provided research specifics. This output is formatted for inclusion in a txt file.
+
+---
+
+LLMSAN PROMPTING STRATEGIES: DESCRIPTION, RESULTS, AND ANALYSIS
+==================================================================
+
+1. Overview
+-----------
+The research explores advanced prompting strategies to enhance accuracy and reliability of Large Language Models (LLMs) for program analysis, addressing the issue of hallucinations (i.e., spurious or incorrect data-flow paths). Specifically, the study discusses and evaluates the following LLM prompting strategies:
+
+- Chain-of-Thought (CoT) Prompting
+- Self-Consistency (SC)
+- Ask-Check and variants (CoT-Check, SC-CoT-Check)
+- Sanitization via program-property decomposition, using parsing-based and LLM-powered sanitizers
+
+References to where these strategies are described, their performance outcomes, and insights from the experiments are provided in detail below.
+
+2. Description of Prompting Strategies
+--------------------------------------
+### 2.1 Chain-of-Thought (CoT) Prompting
+- **Definition**: CoT prompting encourages the model to reason step by step, explicitly showing each logical inference or deduction rather than jumping to conclusions.
+- **Purpose in this work**: To help LLMs produce more accurate data-flow path predictions by structuring reasoning.
+- **Cited Section**: "*Chain-of-thought prompting elicits reasoning in large language models.*"
+
+### 2.2 Self-Consistency (SC)
+- **Definition**: Instead of relying on a single model output, self-consistency samples multiple solutions from the model and selects the most frequent/canonical answer, thereby potentially reducing errors due to randomness.
+- **Purpose in this work**: To mitigate hallucinations or spurious results by cross-verifying sampled solutions.
+- **Cited Section**: "*Self-consistency improves chain of thought reasoning in language models.*"
+
+### 2.3 Ask-Check and Variants (CoT-Check, SC-CoT-Check)
+- **Definition**: These are extended prompting paradigms:
+  - **Ask-Check**: The LLM is prompted to generate a candidate solution and then separately prompted to check (verify) its own answer.
+  - **CoT-Check**: Combines CoT with a self-check verification phase.
+  - **SC-CoT-Check**: Combines self-consistency sampling, CoT reasoning, and a self-verification step.
+- **Purpose**: These meta-prompting strategies are designed to reduce hallucination by inducing the LLM to perform introspection or cross-examination of its outputs.
+- **Cited Section**: "For instance, Ask-Check identifies more spurious data-flowpaths than CoT-Check and SC-CoT-Check in the DBZ detection. SC-CoT-Check identifies fewer spurious data-flow-paths for the APT, XSS, DBZ, and NPD bugs compared to CoT-Check."
+
+### 2.4 Sanitization (Program-Property Decomposition)
+- **Definition**: Rather than a prompting *strategy* per se, sanitization involves running outputs through specialized syntactic and semantic checkers ("sanitizers"): type, functionality, order, and reachability. These may themselves be powered by LLM sub-prompts or traditional parsers.
+- **Purpose**: To remove or flag hallucinated (spurious) paths after initial LLM inference.
+- **Implementation**: "LLMSAN utilizes parsing-based sanitizers and LLM-powered sanitizers to verify multiple basic syntactic and semantic properties upon small code snippets, ultimately identifying spurious data-flow paths emitted in the few-shot CoT prompting."
+
+3. Experimental Context & Results
+----------------------------------
+### 3.1 Where Strategies Are Explained
+- Primary discussion is in sections covering **Ablation Study (5.4)**, **Conclusions (6)**, **Limitations (7)**, as well as reported results in **Table 6**, **Table 7**, and **Table 8**.
+- Specific details of experimental arrangements and outputs of prompting variants are found in passages such as:
+  - "Lastly, CoT prompting and self-consistency do not consistently mitigate hallucinations."
+  - "For instance, Ask-Check identifies more spurious data-flowpaths than CoT-Check and SC-CoT-Check in the DBZ detection."
+  - "Overall, although the performance of LLMSAN diverse among different LLMs, the statistics shown in Table 7 demonstrates the potential of LLMSAN in the bug detection. Meanwhile, it is worth noting that the sanitization technique can identify most of the spurious data-flow paths..."
+
+### 3.2 Results: Success and Limitations
+- **CoT Prompting & Self-Consistency**:
+  - *Finding*: "Do not consistently mitigate hallucinations." Sometimes leads to poor performance because of "ineffective alignments with program semantics, leading to erroneous reasoning steps in CoT prompting and thereby preventing exploring correct reasoning paths."
+  - *Details*: Spurious data-flow paths remain, and some valid ones are missed. The "poor performance of CoT-Check and SC-CoT-Check may be attributed to the ineffective alignments with program semantics."
+  
+- **Ask-Check vs CoT-Check & SC-CoT-Check**:
+  - *Finding*: "Ask-Check identifies more spurious data-flowpaths than CoT-Check and SC-CoT-Check in the DBZ detection. SC-CoT-Check identifies fewer spurious data-flow-paths for the APT, XSS, DBZ, and NPD bugs compared to CoT-Check."
+  - *Limitation*: While these approaches aid in self-verification, they do not always improve the identification of spurious paths or valid paths, and their effectiveness varies depending on the bug type and model.
+
+- **Sanitization (LLMSAN's pipeline)**:
+  - *Finding*: All four sanitizers can effectively identify spurious data-flow paths, especially with gpt-4. For example, "the type sanitizer (TS) and order sanitizer (OS) detect 16 and 8 spurious data-flow paths out of 46 identified spurious data-flow paths, respectively. The functionality sanitizer (FS) and reachability sanitizer (RS) uncover 32 and 26 spurious data-flow paths respectively..."
+  - *Strength*: Each sanitizer can "contribute to mitigating hallucinations by uniquely identifying specific spurious data-flow paths for a specific bug type".
+  - *Impact*: "LLMSAN surpasses the precision and recall of CodeFuseQuery by 15.36% and 3.61%, respectively..."; "Powered with gpt-4, LLM-SAN reports 89 data-flow paths in total, of which 48 are valid, achieving a precision of 44.04%."
+  - *Drawback*: A minor loss of valid data-flow paths (e.g., 2 and 1 valid data-flow paths lost by functionality and reachability sanitizer in gemini-1.0), indicating a trade-off between safety and recall.
+
+- **Quantitative Results** (from Table 7, summarized here for gpt-4 on selected bug types):
+   - **APT**: Precision 98.18%, Recall 54.00%
+   - **XSS**: Precision 89.77%, Recall 79.00%
+   - **OSCI**: Precision 98.94%, Recall 93.00%
+   - **DBZ**: Precision 92.68%, Recall 76.00%
+   - **NPD**: Precision 75.56%, Recall 68.00%
+
+  Sanitization achieves high recall and high precision in most cases, except for scenarios where very aggressive filtering mistakenly eliminates valid paths. Spurious paths are greatly reduced.
+
+4. Additional Implementation Specifics
+---------------------------------------
+- Prompting strategies are typically applied in a **few-shot** manner, showing the model examples of data-flow reasoning or of the desired output.
+- Sanitization is a **post-processing step**, not contributing to generating new valid paths but to pruning spurious ones.
+- **Prompt structure** for Ask-Check and CoT-Check involves two phases: generation and verification (details of actual prompts may be referenced in the appendix/supplementary material).
+- **Self-consistency** involves generating multiple times and aggregating (majority voting or most confident).
+- **Sanitizer prompts** may request the model to check for specific properties (e.g., type correctness, order of operations, functionality presence, reachability in the program graph).
+
+5. Limitations & Lessons Learned
+---------------------------------
+- Prompting and meta-prompting (self-consistency, Ask-Check, CoT-Check) alone are insufficient for complete hallucination mitigation; errors and false positives remain.
+- Sanitization is essential, but not perfect: may prune valid paths (false negatives).
+- Improved prompts and more powerful meta-reasoning, integrated with program semantics, may improve future performance.
+
+6. Conclusion
+--------------
+- **Sanitization** (program-property decomposition) delivers the most reliable reduction in hallucinated data-flow paths, outperforming pure prompting paradigms.
+- CoT, self-consistency, and "Ask-Check" variants provide partial mitigation but are insufficient if used alone.
+- Model selection matters: gpt-4 outperforms gpt-3.5 and other LLMs, but all need external checks for reliability.
+
+---
+
+End of summary.
+
+
+--- Chunk Boundary ---
+
+Below is a detailed explanation of the prompting strategies as discussed in the provided excerpt, including their mechanisms, location in the paper, performance results, success rates, and specific research details. Please copy-paste this content into a `.txt` file as needed.
+
+---
+
+```
+PROMPTING STRATEGIES IN LLM-SAN FOR BUG DETECTION
+
+1. Introduction and Overview
+
+The paper investigates the effectiveness of hallucination mitigation in LLM-driven bug detection through a multi-sanitizer prompting pipeline, called LLM-SAN (Large Language Model Sanitization). The researchers compare LLM-SAN’s performance to several alternative prompting strategies (baselines) across four popular LLMs: GPT-3.5, GPT-4, Gemini-1.0, and Claude-3.
+
+The main objectives of the prompting strategies are to:
+- Improve precision (by reducing hallucinated/spurious bug reports)
+- Maintain high recall (capture as many true bugs as possible)
+- Test prompt robustness across multiple LLMs and bug types
+
+2. Prompting Strategies Discussed
+
+The following prompting strategies are evaluated:
+
+A. LLM-SAN (Sanitization Pipeline)
+- Multi-stage pipeline involving four distinct "sanitizers", each with domain-informed prompts:
+    a) Type Sanitizer (syntactic type consistency)
+    b) Functionality Sanitizer (semantic validation, including if-branch conditions)
+    c) Order Sanitizer (control/data-flow order consistency)
+    d) Reachability Sanitizer (path realizability)
+- Each sanitizer prompts the LLM to check for a specific class of spurious (hallucinated) data-flow path based on tailored prompt templates.
+- Prompts often incorporate partial code context, program-relevant properties, and task-specific definitions.
+
+B. Baseline Prompt Strategies
+- Ask-Check: A prompting strategy where the LLM outputs a bug prediction, then a follow-up prompt asks the LLM to verify/reflect on its own answer.
+- CoT-Check (Chain-of-Thought Check): After completing a bug prediction prompt, the LLM is given a prompt that encourages it to reason step-by-step before confirming its answer.
+- SC-CoT-Check (Self-Consistent CoT Check): LLM is prompted multiple times with slight variations, and majority voting or consistency between the outputs is used to decide if a bug report is accepted.
+- FSCoT (Few-Shot Chain-of-Thought): Prompting the LLM with a series of carefully selected examples that demonstrate desirable reasoning paths and outputs ("few-shot"), with step-by-step reasoning.
+
+C. Prompt Customization and Scope
+- The LLM-SAN sanitizers use "focused" prompts, targeted at particular program statements, program slices, or data-flow paths.
+- Prompts are constructed to avoid overwhelming the LLM with excessive code, but to include enough context for meaningful reasoning.
+- For some sanitizers (e.g., Functionality), the function body's code is included in the prompt; however, see limitations in complex flows (Section B.2, e.g., the prompt does not include utility method definitions like privateReturnsTrue(), which can affect performance).
+
+3. Where Prompting Strategies Are Explained
+
+The main technical explanation for the LLM-SAN prompting pipeline is in:
+- **Section 5 (Main Paper)**
+- **Appendix A.1 (Performance of LLMSAN using Different LLMs)**
+- **Appendix A.3 (Ablation Study using Different LLMs)**
+
+Baselines and comparison:
+- **Appendix A.2 (Comparison with Baselines using Different LLMs)**
+- **Table 8**: Comparison of FSCoT and LLM-SAN with GPT-4.
+- **Table 9**: Raw data—performance of Ask-Check, CoT-Check, and SC-CoT-Check across LLMs.
+
+Case studies (prompt effectiveness, failure modes):
+- **Appendix B (Case Study)**
+- **Figures 10-15**: Examples of code and prompts.
+
+4. Results of Prompting Strategies
+
+A. Precision and Recall
+
+- **LLM-SAN** outperforms all baselines in hallucination (spurious path) mitigation, especially in **precision**.
+  - Achieves ~28.71% higher precision than FSCoT when averaged across bug types and LLMs.
+  - Recall remains almost the same as before, i.e., true bugs are mostly still detected.
+
+- **Baselines** (Ask-Check, CoT-Check, SC-CoT-Check):
+  - Show little to no effectiveness in resolving spurious data-flow paths, especially when powered by Gemini-1.0 (Table 9: almost zero spurious path mitigation).
+  - Precision generally does not improve; most false positives remain.
+
+B. Token and Cost Overhead
+
+- LLM-SAN consumes roughly 1.7-2.0 times the input tokens, and 3-3.5 times the output tokens compared to FSCoT, due to the multi-step sanitizer pipeline.
+- Financial cost increases by up to 95%, but the precision gain (22% average) is considered worthwhile by researchers.
+
+C. Ablation Study
+
+- Removing any single sanitizer from the LLM-SAN pipeline increases false positives, highlighting the necessity of each specialized prompt.
+
+5. Specifics and Observations of Researchers' Prompt Strategies
+
+- **Task Decomposition**: Instead of asking one model one big question, the pipeline uses four successive sanitization steps, each targeting a failure mode with a custom prompt.
+- **Prompt Engineering**: Each sanitizer’s prompt is tailored specifically (e.g., order sanitizer uses control-flow context; type sanitizer uses few-shot examples with/without string literals).
+- **Code Context**: Prompt size and scope are controlled. Inclusion/exclusion of utility functions (as in the failure case in Figure 15) materially impacts LLM performance.
+- **Cross-Model Consistency:** Though absolute effectiveness varies, overall the sanitization prompts confer strong results across all four LLMs. Some hallucinations remain (specifically, interprocedural or utility-function based ones) due to context window or prompt representational limitations.
+- **Baselines**: All single-prompt or self-consistency prompts performed poorly in hallucination mitigation, indicating the need for structured, domain-aware multi-step prompt strategies.
+
+6. Success & Limitations
+
+- **Success:** LLM-SAN's systematic, decomposed, tailored prompting pipeline robustly mitigates LLM hallucinations in code analysis, maintaining high recall with much higher precision than baseline prompt strategies.
+- **Limitations:** Some program-specific hallucinations persist, especially when the necessary contextual code is unavailable in the prompt window.
+
+References: See original sections described above, especially Appendix A and B for raw data and qualitative discussion.
+
+---

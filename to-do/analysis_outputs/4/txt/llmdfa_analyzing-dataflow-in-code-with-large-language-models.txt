@@ -1,0 +1,213 @@
+## 1. What is the point of this paper? What is it trying to explore? What makes it unique?
+
+### **Main Point and Exploration**
+- The paper introduces **LLMDFA**, a novel framework for **dataflow analysis** (DFA) powered by large language models (LLMs).
+- Traditional DFA relies on compiled code, intermediate representations (IR), and expert-crafted customizations. This is problematic when code is incomplete/uncompilable, or when task-specific customization is too hard for non-experts.
+- The paper aims to show that by combining LLMs with prompt engineering and external tools, **one can perform dataflow analysis directly on source code**, even if uncompiled, and with high flexibility.
+- **Major challenge:** LLMs can hallucinate (i.e., generate incorrect results). The paper's main technical contribution is to **decompose DFA into smaller manageable subproblems** (source/sink extraction, dataflow summarization, path feasibility validation) and address each with robust prompting/tool synthesis to reduce hallucination.
+
+### **What makes it unique?**
+- **First work:** to demonstrate fully **compilation-free and customizable DFA using LLMs**.
+- **Decomposed process:** Instead of monolithic LLM reasoning, LLMDFA splits the complex task and leverages LLMs for synthesis, step-by-step reasoning, and tool generation.
+- **External expert tools:** LLMs are not solely relied upon for delicate tasks, but synthesize code that outsources parts of the problem (e.g., parsing, constraint solving via SMT solvers) to robust expert tools.
+- **Few-shot Chain-of-Thought (CoT) prompting**: Systematically instructs LLMs in step-by-step reasoning about dataflow, reducing errors/hallucinations.
+
+---
+
+## 2. What dataset did they use?
+
+### **Synthetic Dataset:**
+- **Juliet Test Suite:** A well-known dataset for static analysis tools, consisting of synthetic code with labeled bugs.
+  - Focused on three bug types: Divide-by-Zero (DBZ), Cross-site Scripting (XSS), OS Command Injection (OSCI).
+  - Each bug type has multiple instances (DBZ: 1850, XSS: 666, OSCI: 444 in Java, plus C/C++).
+- **Code is obfuscated and comments removed** for fair evaluation.
+
+### **Real-world Dataset:**
+- **TaintBench:** 39 Android malware apps with real-world source code, containing custom source/sink definitions for security analysis.
+- Used to test the system’s flexibility in real, incomplete, un-compilable code with highly customized source/sink requirements.
+
+---
+
+## 3. What LLM models were used?
+
+- **gpt-3.5-turbo-0125** (often referred to as "gpt-3.5")
+- **gpt-4-turbo-preview** ("gpt-4")
+- **Gemini-1.0-pro** ("gemini-1.0")
+- **Claude-3-opus** ("claude-3")
+- All are used in experiments; most quantitative results are broken out per-model across the datasets.
+
+---
+
+## 4. What are the prompting strategies discussed in this paper?
+
+The **prompting strategies** are carefully designed for each analysis phase:
+
+### **A) LLM-as-Code-Synthesizer for Source/Sink Extraction:**  
+- Prompt the LLM to synthesize Python scripts that use a parsing library (like tree-sitter) to extract sources and sinks from AST, according to user specification and examples.
+
+### **B) Few-shot Chain-of-Thought (CoT) Prompting for Dataflow Summarization:**
+- For dataflow within a function, prompt the LLM using multiple examples/templates that walk through step-by-step how values are propagated.
+- Encourage step-by-step reasoning in answer generation (explicitly "think step-by-step" instructions).
+
+### **C) LLM-as-Code-Synthesizer for Path Feasibility (SMT Scripting):**
+- Prompt LLMs to generate Python scripts that encode path conditions in Z3 (an SMT solver), using parsed control-flow/path information.
+- If script generation fails (e.g., syntax error), feedback/error is provided in re-prompts for up to three fixes.
+
+### **D) Baseline for End-to-End Prompting (for comparison):**
+- Uses a single, long prompt with few-shot CoT examples that covers the entire bug detection process as a single question.
+
+---
+
+## 5. What specific prompts were used?
+
+**Detailed prompt templates** are found in Appendix A.2.2 and are summarized as follows:
+
+### A) **Source/Sink Extractor Synthesis Prompt:**
+- Instructs the LLM to write a Python script that traverses an AST and finds nodes (sources/sinks) matching certain patterns, given some labeled examples, their ASTs, and a skeleton script.
+- Example:
+
+```
+Role: You are a good programmer and familiar with AST of programs.
+Description: Please write the Python script traversing AST and identify sources/sinks for dataflow analysis.
+Source/SinkInfo: There are several forms of sources/sinks: [Spec].
+[Examples of programs and ASTs]
+SynthesisTask: Please write a Python script...
+FixingTask: Here is the synthesized result of last round: [script]. When executing the script, we encounter: [error]...
+```
+
+### B) **Dataflow Summarization (CoT) Prompt:**
+- Asks LLM if two variables at two lines have the same value, with stepwise rationale. Includes several examples with code and reasoning.
+- Example:
+
+```
+Role: You are a good Java programmer...
+Description: Determine whether two variables at two lines have the same value...
+Rules: ...
+Examples: [code, question, answer, explanation]
+Question: Now I give you a function: [FUNCTION]
+Does [VAR1] at [L1] have the same value as [VAR2] at [L2]?
+Please think it step by step. Return YES/NO with explanation.
+```
+
+### C) **SMT Scripting for Path Feasibility:**
+- Prompts LLMs to generate/repair Python code that encodes a path condition and checks it with z3.
+- Example:
+
+```
+Role: You are a good programmer and familiar with Z3 python binding.
+Description: Please write a Python program using Z3 python binding to encode the path condition.
+PathInfo: Here is a path: [path]...
+SynthesisTask: Please write a Python script...
+FixingTask: Here is the synthesized result of last round: [script]. When executing... [error].
+```
+
+#### Examples of entire prompt templates and some filled-out instantiations are shown in Figures 9, 10, 11, 12 of the appendix.
+
+---
+
+## 6. Where are the prompt strategies explained?
+
+- **Section 3 ("Method")** explains the overall workflow and each phase:
+  - **3.1**: Source/Sink Extraction (describes LLM code synthesis with iterative fixing via error messages)
+  - **3.2**: Dataflow Summarization (CoT prompting with few-shot examples)
+  - **3.3**: Path Feasibility Validation (LLM script generation & fixing)
+- **Appendix A.2** gives** prompt templates** and design principles for each phase.
+- Explanations for the ablation studies and end-to-end baseline prompts are in Appendix A.2.4.
+
+---
+
+## 7. What are the results of the prompting strategies, and how successful or not were they?
+
+### **Overall Results:**
+- **LLMDFA, using the decomposition/specialized prompting strategies**, consistently outperforms classical dataflow analyzers and the LLM-based end-to-end prompt baseline.
+
+#### **Key Results:**
+- **Juliet Test Suite (Java) with gpt-3.5-turbo:**
+  - DBZ: 73.75% Precision / 92.16% Recall / 0.82 F1
+  - XSS: 100.0% Precision / 92.31% Recall / 0.96 F1
+  - OSCI: 100.0% Precision / 78.38% Recall / 0.88 F1
+
+- **TaintBench (Real-world Android code):**
+  - LLMDFA: 75.38% Precision / 61.25% Recall / 0.67 F1
+  - End-to-End LLM: 43.48% / 25.00% / 0.32
+  - CodeFuseQuery: 72.92% / 43.75% / 0.55
+
+### **Effectiveness of Prompting and Decomposition:**
+- **Extractor Synthesis**: High accuracy and reusability (once synthesized, extractor can be reused for all functions/instances).
+- **Few-shot CoT**: Significantly reduces hallucinations and increases recall vs. simple CoT/no-CoT or end-to-end prompting.
+- **SMT Scripting**: Correctness is generally high, with most scripts generated correctly within three rounds; a small fraction require fallback to direct LLM logic.
+
+### **Ablation studies:** (removing any of the decomposition steps or tool synthesis results in decreased recall, precision, and F1).
+
+---
+
+## 8. Why did one strategy give better results than another?
+
+**Decomposition with specialized prompting is superior because:**
+- **Reduces complexity:** Each LLM task is smaller and more focused (e.g., does not require holding the semantics of an entire program in context at once)
+- **Aligns LLM strengths:** LLMs are good at synthesizing code and following explicit stepwise reasoning with examples, but poor at remembering long contexts or maintaining global invariants.
+- **Tool synthesis leverages expert tools:** For path feasibility and AST traversal, external solvers and parsers provide determinism and correctness where LLMs are weak.
+- **Step-by-step (CoT) guidance reduces hallucination:** LLMs make fewer mistakes when following explicit reasoning examples.
+- **One-shot extraction synthesis saves compute:** The extractor only needs to be generated/fixed once for a new bug type, and can be reused.
+
+By contrast, **end-to-end LLM prompting** suffers from:
+- **Long prompts, context limitations**
+- **Cascading hallucinations**
+- **Lack of iterative self-correction**
+
+---
+
+## 9. All specifics of the researcher's prompt strategies
+
+### **1. Source/Sink Extraction:**
+- LLMs prompted to synthesize Python scripts that traverse AST (via tree-sitter) to extract sources and sinks, given specification and few labeled examples/ASTs.
+- Fixing loop: If the script misses some targets or throws errors, LLM is prompted to correct (error message and misses are shown in the prompt) for up to N=3 times.
+- This script is **one-time per bug kind:** used for all further code in that analysis.
+
+### **2. Dataflow Summarization (Few-shot CoT):**
+- LLMs take in function code and are asked, via prompt, whether two variables at given lines have the same value/exhibit dataflow.
+- Each prompt includes concrete example programs (up to 6 lines), questions, correct answers, and detailed explanations—teaching LLMs to follow correct reasoning patterns.
+- LLM is explicitly told to "think step by step" in new queries.
+
+### **3. Path Feasibility Validation:**
+- LLM is prompted (with context: path, constraints, sometimes a partial skeleton) to produce a Python script using z3 SMT solver which models and solves the relevant path constraints.
+- If the script is buggy (e.g., syntax error, uncaught exception), the error message and the buggy code are fed back to the LLM with instructions to fix.
+- If it fails after N=3 attempts, LLM is asked to answer feasibility directly, though results are less reliable.
+
+### **4. End-to-End LLM Baseline:**
+- For comparison, a variant is run where a few-shot CoT prompt is provided as a long, single prompt, covering the entire detection process from source code snippet to bug report and stepwise rationale.
+- No decomposition, tool synthesis, or iterative fixing.
+
+### **Prompt Examples and Templates:**
+- Located in **Appendix A.2.2**, Figures 9, 10, 11, and 12.
+- Prompts are built on simple language, clear task guidelines, explicit step instructions, and consistency between examples and actual task.
+
+### **Safeguards and Hyperparameters:**
+- Temperature is set to **0** (greedy decoding, no sampling/randomness).
+- For script generation tasks: up to three auto-repair rounds.
+- Prompt lengths are kept short by focusing on a single function/block at a time.
+
+---
+
+## **TL;DR Table**
+
+| Phase            | Prompting Strategy           | Example/Template Location | Outperforms Baselines?   |
+|------------------|-----------------------------|--------------------------|--------------------------|
+| Source/Sink      | Synthesized script + fix-it  | Fig. 9, Sec 3.1, A.2.2   | Yes (100% accurate)      |
+| Summarization    | Few-shot CoT, stepwise      | Fig. 10, Sec 3.2, A.2.2  | Yes, higher F1/recall    |
+| Path Feasibility | Script synth + fix-it, z3    | Fig. 11, Sec 3.3, A.2.2  | Yes, fewer FPs/FNs      |
+| End-to-End       | Long prompt, few-shot CoT    | A.2.4                    | No, lower accuracy       |
+
+
+---
+
+## **References for Prompt Templates**
+
+- **Figure 9**: Source/Sink extractor prompt (Python, tree-sitter)
+- **Figure 10**: Dataflow summarization CoT prompt (Java, YES/NO/explanation)
+- **Figure 11**: SMT scripting with z3, script generation/repair
+- **Appendix A.2**: All prompting strategies and baseline description.
+
+---
+
+Let me know if you need further breakdown of any section (such as specific prompt wordings for a bug type or quantitative results for a particular LLM)!

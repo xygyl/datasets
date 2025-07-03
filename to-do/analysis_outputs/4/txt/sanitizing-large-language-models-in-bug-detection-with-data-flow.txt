@@ -1,0 +1,165 @@
+## 1. What is the point of this paper? What is it trying to explore? What makes it unique?
+
+**Point/Exploration:**
+- The paper aims to improve the reliability of large language models (LLMs) used for bug detection in code, focusing specifically on **reducing hallucinations** (i.e., false positives) when LLMs report bugs.
+- Classic code analysis approaches are limited in customizable bug detection, especially for incomplete code or when deep semantic analysis is required.
+- The paper introduces **LLMSAN**, a methodology that **forces LLMs to output not just bug predictions, but step-by-step ‘data-flow paths’** that serve as proof of how values propagate in code to produce bugs.
+- These outputs (‘data-flow paths’) are then validated through a **layered sanitization pipeline**—combining both automatic parsing and LLM-driven checks—to filter out false positives (hallucinations).
+- The central **hypothesis**: If LLMs are required to provide a rigorous, checkable path for a detected bug, and that path is further scrutinized by various “sanitizers”, we can greatly improve precision (fewer hallucinated bugs) with minimal recall loss.
+
+**Uniqueness:**
+- Introduces a **schema** in which step-by-step data-flow proofs (not merely bug claims or explanations) are demanded from LLMs, aligning code reasoning output more closely with how static analyzers work.
+- Proposes a novel **post-processing sanitization pipeline** (LLMSAN), splitting validation into manageable, local, and mostly syntax-level checks (decoupling syntax and semantic checks), and using LLMs only where necessary.
+- Demonstrates **real, substantial reduction of false positives (hallucinations)** compared to standard few-shot CoT and other prompting/self-check methods.
+
+---
+
+## 2. What dataset did they use?
+
+**Two datasets:**
+1. **Juliet Test Suite (Java subset)**
+   - Synthetic benchmark with code samples and ground truth for common bug types, widely used in software security/analysis research.
+   - Five chosen bug types: Absolute Path Traversal (APT), Cross-Site Scripting (XSS), OS Command Injection (OSCI), Divide-by-Zero (DBZ), and Null Pointer Dereference (NPD).
+   - 100 programs per bug type were randomly selected.
+
+2. **TaintBench**
+   - A set of 39 real-world Android malware apps with labeled taint flows (i.e., how sensitive data can be leaked in code).
+   - Useful for testing the system on complex, un-compilable, real applications.
+
+---
+
+## 3. What LLM models were used?
+
+- **gpt-3.5-turbo-0125** (“gpt-3.5”)
+- **gpt-4-turbo-preview** (“gpt-4”)
+- **gemini-1.0-pro** (“gemini-1.0”)
+- **claude-3-haiku** (“claude-3”)
+
+All four LLMs were evaluated for their raw prompting and in combination with the proposed LLMSAN pipeline.
+
+---
+
+## 4. What are the prompting strategies discussed in this paper?
+
+**Main Prompting Strategies:**
+
+- **Few-shot Chain-of-Thought (CoT) prompting for bug detection**:
+  - The user supplies a small set of buggy code snippets, each with a natural-language explanation and, crucially, an example data-flow path showing how the bug arises.
+  - The LLM is prompted on a new program, being required to output a data-flow path (not simply “is there a bug” or a summary).
+
+- **Sanitizer-specific prompts**:
+  - When validating data-flow paths, the system generates focused prompts for the start/end variable (e.g., "Can variable X at line L be zero?") or for checking if a value can propagate from point A to point B.
+
+- **Sanitizer prompts are local (they target short code snippets/functions, not the whole program), making LLM responses more reliable and efficient.**
+
+---
+
+## 5. What specific prompts were used?
+
+### Example Prompt Templates (from the paper):
+
+**a) Chain-of-Thought Few-Shot Bug Detection**  
+(LLM is given several [code, explanation, data-flow path] examples and then given a new code sample; instructed to provide a data-flow path as bug proof.)
+
+**b) Functionality Sanitizer** (Figure 5):
+```
+Examples: Here are several examples containing DBZ bugs:
+[examples].
+Please understand how zero values are produced.
+
+Task: Analyze the code: [function].
+Please check whether [value] at line [number] can be zero. Please think step by step and conclude the answer with Yes or No.
+```
+
+**c) Reachability Sanitizer** (Figure 6):
+```
+Examples: There are examples containing DBZ bugs: [examples].
+Please understand how program values are propagated.
+
+Task: Analyze [function1], [function2].
+Please check whether [value1] at line [linenumber1] can be propagated to [value2] at line [linenumber2].
+Please think step by step and conclude the answer with Yes or No.
+```
+
+**d) Type sanitizer and order sanitizer** use parsing/static code analysis, so no LLM prompt is needed.
+
+---
+
+## 6. Where are the prompt strategies explained?
+
+- **Section 4 and Figure 5 + 6**: The main sanitization prompts for functionality and reachability.
+- **Section 3**: Outlines the bug detection prompting task—few-shot CoT requiring LLMs to output data-flow paths.
+- **Appendix B**: Presents concrete code and sample sanitization prompt applications.
+- **Tables**: Summarize template and example prompts.
+- **Text references, e.g., "Figure 5: The prompt template of functionality sanitizer"**.
+
+---
+
+## 7. What are the results of the prompting strategies and how successful (or not) were they?
+
+**Raw CoT prompting (FSCoT baseline):**
+- Without the LLMSAN sanitization, LLMs have **high recall (≈74%) but suffer from low precision (≈69%)** due to many hallucinated bug reports (false positives). Example: On Juliet, gpt-4: FSCoT precision = 69.04%, recall = 74.40%.
+
+**LLMSAN sanitized pipeline:**
+- **Average precision increases dramatically—to 91.03%—with only a tiny recall drop to 74.00%.**
+    - This means most hallucinated bug reports are filtered out, but it only slightly reduces how many true positives are found.
+- **Percentage of hallucinated bug reports caught:** About 78.24% of spurious data-flow paths are filtered, with almost no true bugs incorrectly discarded.
+
+**Compared to other baselines (e.g., Ask-Check, CoT-Check, SC-CoT-Check):**
+- LLMSAN achieves *much better precision and consistency*.
+- These baselines sometimes sacrifice true positives, or fail to catch most hallucinations.
+
+**On real-world TaintBench:**
+- LLMSAN, with gpt-4, achieves a precision of 44.04% (vs. CodeFuseQuery's 28.68%), and recall of 88.27%.
+- LLMSAN prunes hundreds of spurious bug claims, almost never discarding true bugs.
+
+**Why successful?**
+- Because the sanitizers focus on small, local, checkable properties, reducing the scope for LLM confusion and hallucination.
+- Forcing LLMs to output rigorous, symbolically tractable data-flow paths fixes a key problem in freeform code explanations.
+
+---
+
+## 8. Why did one strategy give better results than another?
+
+- **LLMSAN outperforms pure CoT (FSCoT) and other hallucination checks** because:
+    - **Demanding a data-flow path,** not just a sentence or explanation, forces the LLM to ‘show its work’. If it can't provide a valid path, or the path is flawed, the report gets filtered.
+    - **Sanitizer pipeline checks are largely symbolic, syntax-based, or focused on small function/local code chunks.** These are much easier for LLMs and/or parsers to validate than reasoning about an entire program at once. Each sanitizer filters a unique subset of hallucinated paths.
+    - **Baselines like Ask-Check and CoT-Check often miss hallucinations** due to prompting the LLM on large code snippets, or relying on LLM consistency/self-critique, which is less reliable than structured path validation.
+
+---
+
+## 9. All specifics of the researcher's prompt strategies
+
+**Prompting is employed in two key ways:**
+
+### a) Forcing bug reports to include data-flow paths
+- **Few-shot CoT prompt format**: Multiple triplets (code, explanation, path) are given for different bugs. The LLM must output a similar path (list of variable/line pairs showing value propagation) for new queries.
+- Path format: [(variable1, line-number1), (variable2, line-number2), ..., (variableN, line-numberN)]
+
+### b) Sanitizer prompts
+- **When a data-flow path is proposed, sanitize/validate each step**:
+    - **Type Sanitizer**: Check via parsing if the start/end nodes in the path are of syntactic types that truly support the bug type (no LLM prompt required).
+    - **Functionality Sanitizer**: LLM is asked (with a prompt as in Figure 5), "Can this variable/expression at this line be zero?" Uses the code of that function, plus few-shot examples.
+    - **Order Sanitizer**: Check via parsing that the path matches real control-flow order in the code—statements/assignments must be reachable in sequence (no LLM prompt).
+    - **Reachability Sanitizer**: LLM is asked (with a prompt as in Figure 6), "Can value X at line L1 reach Y at line L2 within this function/function pair?"
+
+### c) Ablation studies
+- Each sanitizer can be removed in experiments to measure its unique contribution.
+- Sanitizers are applied independently—removing any increases hallucinations in different bug types.
+
+### d) Prompting Decisions
+- **Prompts only use a function (not entire program)** for validation, to minimize LLM confusion and token cost.
+- **Prompts are step-by-step and conclusion-oriented**, always requesting "think step by step and conclude with Yes or No".
+
+### e) Implementation notes
+- **Parsing is done via tree-sitter**, so sanitizer prompts don't need the LLM for basic syntax/type/order checks.
+
+### f) Prompt Examples (direct from paper)
+- See answers to Q5 above, or Section 4 and Figures 5 & 6 of the paper for the templates.
+
+---
+
+**In summary:**
+- The core contribution is to require symbolic, checkable data-flow paths as proof of bugs; all LLM outputs are filtered through a hybrid sanitizer pipeline to remove hallucinations.
+- Prompting is tactical: few-shot, chain-of-thought, but outputting ‘paths’ instead of free-text explanations; sanitizer prompts focus on binary, local property checks in function scope.
+- The approach surpasses both classic static analysis and freeform LLM prompting in suppressing false positives with minimal recall loss.

@@ -1,0 +1,144 @@
+**1. What is the point of this paper? What is it trying to explore? What makes it unique?**
+
+**Point & Exploration:**  
+The paper addresses the problem of “checker bugs” in Deep Learning (DL) libraries such as TensorFlow and PyTorch. Checker bugs are defects in error-checking and validation code, e.g., missing or improper checks for tensor properties. Despite their critical nature—potentially leading to silent errors, crashes, or wrong results in AI systems—they are underexplored compared to bugs in traditional software.
+
+**What makes it unique:**  
+- **First comprehensive study** of checker bugs specifically in DL libraries, not just traditional software.
+- Empirical characterization of 527 checker bugs from TensorFlow and PyTorch, identifying new root causes, symptoms, and fixing patterns not covered in prior literature.
+- Introduction and evaluation of “TensorGuard,” an LLM-based tool using Retrieval Augmented Generation (RAG) and various prompting strategies, to detect and fix checker bugs.
+- Creation of a large dataset and taxonomy for DL checker bugs.
+
+---
+
+**2. What dataset did they use?**
+
+- **Empirical Study Dataset:**  
+    - From PyTorch and TensorFlow GitHub repos.
+    - 2,418 commits (Sept 2016–Dec 2023) filtered to **527 actual checker bugs** (306 TensorFlow, 221 PyTorch) after manual inspection.
+- **For RAG (Retrieval-Augmented Generation):**  
+    - All commits (not just checker-related) from Sept 2016–Dec 2023.
+    - 61,453 commits (PyTorch), 150,352 (TensorFlow)
+    - Resulted in **1.3M code changes** in the database.
+- **Evaluation/Test Dataset:**  
+    - Commits from Jan 2024–Jul 2024.
+    - 92 buggy checker commits, 135 clean instances used for testing TensorGuard.
+
+---
+
+**3. What LLM models were used?**
+
+- **Main LLM for TensorGuard:**  
+    - **GPT-3.5-turbo** (OpenAI’s ChatGPT-3.5) is used as the primary language model for detection and repair tasks.
+- **Baseline for Comparison:**  
+    - **AutoCodeRover**: State-of-the-art bug repair tool, tested here using **GPT-4o-mini** (OpenAI), as it supports a large context window suitable for repository-level tasks.
+
+---
+
+**4. What are the prompting strategies discussed in this paper?**
+
+Three main prompting strategies were tested:
+
+1. **Zero-Shot Prompting**: LLM is given the input and directly asked for a decision/solution, with no examples.
+2. **Few-Shot Prompting**: LLM receives task instructions plus a few (here, two) labeled example tasks to learn the expected output style.
+3. **Chain-of-Thought (CoT) Prompting**: LLM is guided to reason step-by-step, breaking down the reasoning into analytical steps (commit message analysis, code change review, bug impact analysis, decision, output).
+
+---
+
+**5. What specific prompts were used?**
+
+- **For Checker Bug Detection Agent:**
+    - **Chain-of-Thought:**  
+      - Steps: Analyze commit message > Review code change > Identify potential issues > Analyze impact > Decide bug/no-bug > Output "YES"/"NO".
+    - **Zero-Shot:**  
+      - Short task description, commit message, code change blocks.
+    - **Few-Shot:**  
+      - Task instruction + two example commit-message/code-change/label pairs + the target instance.
+
+- **For Root Cause Analysis Agent:**  
+  - Tasked with: "Please describe the root cause of the bug based on the following commit message: {commit message}".
+
+- **For Patch Generation Agent:**  
+  - Given bug explanation and context (“retrieved knowledge”), generate a patch/fix, example patches provided, step-by-step instructions requested.
+
+Exact template wordings are included in Tables V-IX of the paper.
+
+---
+
+**6. Where are the prompt strategies explained?**
+
+- Section **III.A and III.2**  
+    - Detailed architecture, prompt engineering, and specific prompt templates (Tables V-IX).
+    - Summary in the main text and explicit examples in the tables.
+
+---
+
+**7. What are the results of the prompting strategies, and how successful were they?**
+
+**Detection Results** (Table XI):
+- **Chain-of-Thought (CoT):**  
+    - Highest recall (average 94.51%) — most bug instances caught, but lower precision—more false positives.
+- **Zero-Shot:**  
+    - Most balanced — average precision 61.96%, recall 71.28%.
+- **Few-Shot:**  
+    - Highest average precision (62.45%), but lower recall (44%).
+
+**Patch Generation Results** (Table XII):
+- **TensorGuard generated 90 patches; 10 were correct (11.1% accuracy)**
+- **AutoCodeRover generated 32 patches; 3 were correct (9.3% accuracy)**
+  - TensorGuard outperformed baseline for checker bug repair.
+
+---
+
+**8. Why did one strategy give better results than another?**
+
+- **Chain-of-Thought outperforms in recall** because the step-by-step reasoning prompts the LLM to consider more potential issues, resulting in catching more bugs (but at the expense of more false positives, lowering precision).
+- **Zero-Shot gives balanced results** as it neither over-commits nor under-commits, but lacks the benefit of incremental reasoning steps or example cases.
+- **Few-Shot excels in precision** because showing concrete examples before the test makes the LLM conservative in calling bugs (“only call if it looks like these known cases”), so fewer false positives — but this comes at the cost of missing subtler/novel bug patterns (lower recall).
+
+---
+
+**9. All specifics of the researcher's prompt strategies:**
+
+**Detection Agent Prompts:**
+
+- **Chain-of-Thought** (Table V):  
+    - Multi-step, explicit reasoning path laid out:
+        1. Analyze commit message (understand context).
+        2. Review code change (identify modifications).
+        3. Identify issues (look for missing/improper checkers).
+        4. Analyze impact.
+        5. Decide (bug or not).
+        6. Output concise answer ("YES"/"NO").
+    - Designed based on manual taxonomy derived from empirical study (Fig. 2).
+
+- **Zero-Shot** (Table VI):  
+    - Simple prompt: you are an AI trained to detect bugs from commit message and code changes—output a decision.
+
+- **Few-Shot** (Table VII):  
+    - Same basic instructions, with **two actual labeled examples** of bugs.
+
+**Root Cause Analysis Agent Prompt** (Table VIII):  
+- Direct instruction: "Please describe the root cause of the bug based on the following commit message".
+
+**Patch Generation Agent Prompt** (Table IX):  
+- Given:
+    - Bug explanation (from root cause agent).
+    - External context (relevant past fixes from RAG database).
+    - Code to patch.
+    - Multiple example patches.
+    - Tasked to "think step by step and generate a patch".
+
+**Database Construction for RAG:**  
+- Embeddings via sentence-transformers (MiniLM-L6-v2, 384-dims), code changes as “documents”, batch-encoded and indexed via chromadb.
+- Querying for similar (contextually relevant) past fixes is core to supporting patch generation by the LLM.
+
+**Patch Evaluation:**  
+- Patches compared for semantic equivalence, “valid” if they performed the necessary bug fix regardless of formatting/comments.
+- Problems with incorrect patches often traced back to incomplete bug understanding or lack of relevant context.
+
+---
+
+**Summary:**
+
+The paper presents the first systematic study (dataset + taxonomy) of checker bugs in DL libraries, designs and empirically tests TensorGuard (an LLM+retrieval tool), and rigorously compares prompting strategies. It finds Chain-of-Thought is best for high recall (bug-finding coverage), Zero-Shot for balanced performance, and Few-Shot for precision (less false positives); for repair, LLMs struggle but TensorGuard beats the best baseline. Prompt templates and strategies are explicitly detailed in the methodology. The paper also releases their dataset and code for the community.

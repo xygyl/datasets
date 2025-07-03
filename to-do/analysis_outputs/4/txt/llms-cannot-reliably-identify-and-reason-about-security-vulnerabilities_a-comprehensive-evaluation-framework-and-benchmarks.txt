@@ -1,0 +1,165 @@
+## 1. What is the point of this paper? What is it trying to explore? What makes it unique?
+
+**Point:**  
+The paper investigates whether Large Language Models (LLMs)—like GPT-4, PaLM2, etc.—can *reliably* identify and reason about security vulnerabilities in source code.
+
+**What it’s trying to explore:**  
+- Can LLMs serve as security assistants to detect software vulnerabilities?
+- How do LLMs perform across various models, prompt types, code complexities, and augmentations?
+- Are LLMs trustworthy in their reasoning, not just in binary classification?
+- Are results consistent and robust, especially in real codebases and with code "noise"?
+
+**What makes it unique:**
+- It introduces **SecLLMHolmes**: the first *comprehensive, fully automated*, and *publicly available* framework for evaluating LLMs on code vulnerability detection.
+- Tests LLMs not just for correct output, but *detailed multi-dimensional analysis*—including reasoning quality, robustness, prompt diversity, code complexity, etc.
+- Provides a new, *publicly released dataset* of 228 code scenarios: includes both hand-crafted, real-world, and augmented examples.
+- Evaluates *eight* SOTA (state-of-the-art) LLMs using *17 prompting techniques*.
+- Assesses LLMs beyond "right answer": also considers *faithfulness and quality of reasoning*.
+
+---
+
+## 2. What dataset did they use?
+
+- **Hand-crafted Scenarios**: 48 pairs (vulnerable/patched) across 8 top CWEs (vulnerability types), in C and Python, with varying difficulty (easy/med/hard).
+- **Real-world CVEs**: 30 code scenarios (vuln + patched versions), from 15 open-source project CVEs (published and fixed in 2023 to ensure not in training data).
+- **Augmentations**: 150 additional test cases created by *trivial* (e.g., renaming, whitespace) and *non-trivial* (e.g., changing function/variable names, adding unused code, adding library calls) modifications to test LLM robustness.
+- **Total**: 228 code scenarios.
+- The dataset is *publicly released* (see paper footnote for link).
+
+---
+
+## 3. What LLM models were used?
+
+Eight (see Table 1), including both remote (API) and local models:
+
+1. **GPT-4 (OpenAI)**
+2. **GPT-3.5-turbo-16k (OpenAI)**
+3. **codechat-bison@001 (PaLM2, Google)**
+4. **chat-bison@001 (PaLM2, Google)**
+5. **codellama-7b-instruct (Meta/Llama2)**
+6. **codellama-13b-instruct (Meta/Llama2)**
+7. **codellama-34b-instruct (Meta/Llama2)**
+8. **starchat-beta (StarCoder+)**
+
+(Results in main text focus on the five most capable; appendix includes the rest.)
+
+---
+
+## 4. What are the prompting strategies discussed in this paper?
+
+The prompting strategies (see sec 3.3/Table 3) fall into:
+- **Zero-Shot Task-Oriented (ZS-TO)**: direct question about vulnerability for code, no prior examples.
+- **Zero-Shot Role-Oriented (ZS-RO)**: as above, but explicitly assign a role (e.g., security expert/assistant) to the LLM.
+- **Few-Shot Task-Oriented (FS-TO)**: adds a few demonstration examples with both vulnerable and patched code + reasoning.
+- **Few-Shot Role-Oriented (FS-RO)**: as above, with role prompt.
+
+Within these, prompts are further grouped as:
+- **Standard (S)**: straight Q&A about code snippet.
+- **Step-by-Step Reasoning (R)**: explicit chain-of-thought; multi-step vulnerability analysis (emulating human expert processes).
+- **Definition-based (D)**: explicitly provides CWE definitions to the model as context.
+
+---
+
+## 5. What specific prompts were used?
+
+See Table 3 for details—here’s a selection:
+
+- **S1 (ZS-TO)**: Code snippet + Q: “Does the code contain [CWE]?”
+- **S2 (ZS-RO)**: Same as S1, but LLM told to be "helpful assistant."
+- **S3/S4 (ZS-RO, security expert)**: Assigns explicit "security expert" role; S4 leaves out the direct question.
+- **S5/S6 (FS)**: S1/S4 plus a vulnerable example, its patch, and reasoning.
+- **R1 ("Let's think step by step")**: To encourage COT (chain-of-thought) style answers.
+- **R2 ("Security expert, multi-step")**: Emulates human multi-step vulnerability detection.
+- **D1-D5 (Definition-based)**: Includes CWE definition in system/user prompt.
+
+Each LLM’s interface uses a "system" prompt, optional chat history (few-shot), and "user" prompt containing code + question.
+
+---
+
+## 6. Where are the prompt strategies explained?
+
+- **Section 3.3 ("Prompt Templates")**: Detailed taxonomy of prompt types, strategies, and specific prompt IDs.
+- **Table 3**: Clear descriptions for each template (S1–S6, R1–R6, D1–D5).
+- **Figure 1**: Shows generic LLM prompt input structure (system, few-shot, user).
+
+---
+
+## 7. What are the results of the prompting strategies and how successful or not were they?
+
+**Highlights from Results:**
+
+1. **No model achieves satisfactory performance** at vulnerability detection—lots of errors and high false positives.
+2. **LLM performance varies widely** by prompt technique, model, and scenario.
+   - *Few-shot prompting improves accuracy for most models, especially on synthetic code.*
+   - *Role-assignment* (e.g., "security expert") usually helps, especially in reasoning.
+3. **Step-by-step and definition-based prompting helps**—but still not robust (i.e., easily confused by code augmentations).
+4. **Consistency:** Even the top models (PaLM2, GPT-4) gave *inconsistent* answers for identical tasks if code changed (e.g., variable rename, whitespace, or extra library function).
+5. **Non-determinism:** Same prompt+code often yields different answers on reruns.
+6. **Reasoning not always faithful:** Even when the right answer is given, the supplied justification is often incorrect.
+7. **Real-world code:** LLMs do much worse; often flag patched (safe) code as still vulnerable.
+8. **Robustness:** All LLMs can be "broken" (give wrong answers) by simple, superficial code changes.
+
+---
+
+## 8. Why did one strategy give better results than another?
+
+**Findings:**
+
+- **Few-shot examples** help LLMs ground the task (less hallucinating, better mimicry of vulnerability detection).
+- **Role-oriented prompts** encourage models to "think" like an expert, reducing off-topic or nonsensical answers.
+- **Definition-based prompts** (giving CWE descriptions) help in some cases (esp. when model is unsure about the ‘pattern’).
+- However, even with best prompts:
+  - LLMs are not robust: small changes in code can flip the answer.
+  - LLMs can be misled by the *appearance* of "safe" code (e.g., function names, presence of certain libraries), showing superficial pattern-matching.
+  - Some models (especially GPT-4) benefit more from COT/step-by-step, but these chains themselves are not robust and can be confused by "noise."
+- Prompting helps only to a point; fundamental model limitations remain.
+
+---
+
+## 9. All specifics of the researchers' prompt strategies
+
+### Prompting Taxonomy (see also Section 3.3, Table 3):
+
+#### A. STANDARD (“S” PROMPTS)
+- **S1 (ZS-TO):** Code snippet + direct question about a specific CWE (e.g., out-of-bounds write).
+- **S2/S3/S4 (ZS-RO):** As S1, but the LLM is assigned the role of assistant or security expert in the system prompt.
+- **S5/S6 (FS):** Like S1/S4 but few-shot: include vulnerable example, its patch, and standard reasoning.
+
+#### B. STEP-BY-STEP REASONING (“R” PROMPTS)
+- **R1 (ZS-TO):** "Let's think step by step."
+- **R2 (ZS-RO):** "Security expert" role + multi-step vulnerability detection process, explicitly reflected in the prompt.
+- **R3:** Multi-turn conversation, analyzing code sub-components as a human would.
+- **R4–R6 (FS-RO or FS-TO):** Like R2, but with relevant few-shot examples.
+
+#### C. DEFINITION-BASED (“D” PROMPTS)
+- **D1 (ZS-TO):** Adds CWE vulnerability definition to the input.
+- **D2 (ZS-RO):** Role-oriented, plus CWE definition.
+- **D3–D5 (FS):** Like above, with examples.
+
+### Implementation Notes:
+- Prompts usually provided as “system” or “user” prompts in chat format.
+- Often chain-of-thought is explicitly triggered ("Let's think step by step"; see references [11,37]).
+- In few-shot, examples are carefully crafted—each includes both a vulnerable and a patched code, with labels.
+- Emulate human expert process: prompt asks LLM to overview code, identify sub-components, analyze in detail, and reason to conclusion.
+- For definition-based, official MITRE CWE definitions are included up front.
+- For robust automation, prompts direct LLMs to answer in strict formats (“Answer: ... Reason: ...”) for automated evaluation.
+
+**(For full list, see Table 3 in main text.)**
+
+---
+
+### **Where to Find All Details in the Paper**
+
+- **Prompts and strategies explained:** Section 3.3, Table 3.
+- **Sample prompts and roles:** Table 3; Figure 1.
+- **Prompt IDs used in experiments:** Throughout Section 4 and results tables.
+- **Evaluation of each prompt:** Section 4 (esp. 4.3–4.6), with summary tables (e.g., Table 11, Table 12, Table 13, Table 14).
+
+---
+
+**In summary:**  
+- Prompt type *strongly* influences LLM performance—step-by-step and few-shot work best, but all are ultimately fragile.
+- LLMs perform poorly overall: *not robust*, *not deterministic*, and their reasoning is untrustworthy.
+- SecLLMHolmes enables efficient, consistent benchmarking and exposes deficiencies in current LLMs for vulnerability detection.
+
+**Let me know if you want actual sample prompts or more specifics from the paper!**
